@@ -996,7 +996,7 @@ else:
 st.markdown("""
 <div class="bank-header">
     <div>
-        <h1>PEOPLE'S BANK — HITACHI CRM UAT PORTAL</h1>
+        <h1>PEOPLE'S BANK — GRG CRM UAT PORTAL</h1>
         <p>Cash Recycling Machine (CRM) Final User Acceptance Testing Portal (Oracle DB Enabled)</p>
     </div>
     <div class="capacity-box">
