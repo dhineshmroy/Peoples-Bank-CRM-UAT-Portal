@@ -1,0 +1,37 @@
+Credit Card Functions - Negative Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_CR_N_01_001,Authentication,Verify error message when entering an invalid PIN,1. CRM operational.,"1. Insert Mastercard.
+2. Enter incorrect PIN.
+3. Confirm.
+","1. Screen displays 'Invalid PIN'.
+2. Prompt to retry.
+3. Retry counter incremented.
+",,,,,,,,
+TC_CB_CR_N_01_002,Authentication,Verify card retention after 3 consecutive incorrect PINs,1. Active card inserted.,"1. Enter incorrect PIN (Attempt 1).
+2. Enter incorrect PIN (Attempt 2).
+3. Enter incorrect PIN (Attempt 3).
+","1. Screen displays 'Card Retained'.
+2. Card swallowed into capture bin.
+3. Block logged in Switch/SIBS.
+",,,,,,,,
+TC_CB_CR_N_01_003,Cash Advance,Verify refusal when request exceeds available credit limit,"1. Card limit = LKR 20,000.","1. Insert card & enter valid PIN.
+2. Request LKR 50,000.
+","1. Transaction declined by Host.
+2. Displays 'Insufficient Funds / Credit Limit Exceeded'.
+",,,,,,,,
+TC_CB_CR_N_01_004,Cash Advance,Verify refusal when request exceeds single-txn note limit,"1. Max payout limit = LKR 100,000.","1. Insert card & enter valid PIN.
+2. Input custom LKR 200,000.
+","1. Front-End validation blocks entry.
+2. Displays 'Exceeds Maximum Transaction Limit'.
+",,,,,,,,
+TC_CB_CR_N_01_005,PIN Change,Verify error handling when New PIN and Re-entered PIN mismatch,1. In PIN Change menu.,"1. Enter current PIN.
+2. Enter New PIN 1234.
+3. Re-enter PIN 5678.
+","1. Screen displays 'PIN Mismatch'.
+2. PIN is NOT updated in Switch/SIBS.
+",,,,,,,,
+TC_CB_CR_N_01_006,PIN Change,Verify policy restriction on weak/sequential PINs,1. In PIN Change menu.,"1. Enter current PIN.
+2. Try setting New PIN to 1111 or 1234.
+","1. Screen displays 'Weak PIN / Easily Guessable PIN Not Allowed'.
+2. Operation blocked.
+",,,,,,,,

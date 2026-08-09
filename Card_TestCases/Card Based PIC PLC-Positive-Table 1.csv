@@ -1,0 +1,15 @@
+CD-01: Card Based PIC / PLC - Positive Senarious,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PLC Status,PIC Status,FE,SIBS,Remarks
+TC_CB_BP_PIC_PLC_P_01_001,Card Based PLC/PIC,Complete PIC/PLC bill payment flow,"1. Active Debit/ATM Card.
+2. Valid Depositor NIC.
+3. Amount 5000.
+",Insert Card > Select Language > Enter PIN > Select Payments > Enter valid depositor NIC > Enter valid telephone > Select bill type (PLC or PIC) > Enter PLC/PIC reference > Policy details confirmation > Enter Amount > Select Account > Details confirmation > Confirm transection,"Transaction successful, receipt printed and e-receipt sent.",,0001990437,2608070001990437,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_002,Card Based PLC/PIC,Valid depositor NIC verification,1. 996434045V,Insert Card > Select Language > Enter PIN > Enter valid depositor NIC and confirm,NIC verified successfully.,,,,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_003,Card Based PLC/PIC,Valid telephone verification,767227623,Enter valid telephone number and confirm,Enter valid telephone number and confirm,,,,N/A,N/A,,,
+TC_CB_BP_PIC_PLC_P_01_004,Card Based PLC/PIC,Receipt available path,1. Paper roll available,Enter valid telephone number and confirm,Process continues with charge confirmation.,,,,N/A,N/A,,,
+TC_CB_BP_PIC_PLC_P_01_005,Card Based PLC/PIC,Select PIC/PLC biller,1. 982870780V,Choose the biller matching the insurance policy,Customer NIC entry screen displayed.,,,,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_006,Card Based PLC/PIC,Valid customer NIC / Biller verification,1. 977491703V,Enter valid customer NIC and confirm,Reference numbers displayed.,,,,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_007,Card Based PLC/PIC,Reference selection and confirmation,1. Still matching reference numbers for PLC.,Select valid policy reference and confirm,Customer name and policy reference details displayed.,,,,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_008,Card Based PLC/PIC,Cash deposit within limits,1. Still match MOCK information for PLC. (Total amount equal to or higher than minimum amount),Insert valid cash denomination within limits into slot and confirm,Cash accepted and cash details displayed.,,,,N/A,N/A,,,
+TC_CB_BP_PIC_PLC_P_01_009,Card Based PLC/PIC,Bill confirmation,"1. Press ""Confirm"" ","Review bill details and charges, then confirm",Bill payment posted successfully.,,,,PASS,PASS,,,
+TC_CB_BP_PIC_PLC_P_01_010,Card Based PLC/PIC,Receipt generation,N/A,Transaction process completed,Bill payment posted successfully and receipt printed.,,,,PASS,PASS,,,

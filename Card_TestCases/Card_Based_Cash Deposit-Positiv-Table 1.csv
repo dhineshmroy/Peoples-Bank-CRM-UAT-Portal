@@ -1,0 +1,17 @@
+CD-01: Card Based Cash Deposit - Positive Senarious,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,Status,FE,SIBS,Remarks
+TC_CB_CD_P_01_001,Card-Based Cash Deposit - card_number - 5295860147281158,Verify end-to-end successful card-based cash deposit process,"1. Valid Debit/ATM Card.
+2. Account balance before transaction recorded.
+3. Sufficient cash (e.g., Rs. 1,000) within machine limit.
+",Insert Card > Select Language > Enter PIN > Select Deposit > Select Account (if applicable) > Select Purpose > Enter Remarks > Cash Instruction > Insert valid cash > Cash Verification > Cash Details Confirmation > Transaction Confirmation > Confirm deposit,Deposit completed successfully and receipt/SMS sent; SIBS updated with deposited amount.,Deposit Completed Successfully and receipt printed,,2608070001990001,PASS,PASS,PASS,
+TC_CB_CD_P_01_002,Card-Based Cash Deposit,Validate valid card insertion and PIN verification,"1. Machine operational on home screen.
+2. Active card available.
+",Insert valid debit card and enter correct PIN,"Card read successfully, PIN authenticated via ATM switch, and main menu displayed.",All details are correctly verified and main menu displayed,,,PASS,PASS,PASS,
+TC_CB_CD_P_01_003,Card-Based Cash Deposit,Validate account selection linked to card,1. Card inserted and PIN validated.,Select Deposit and select linked target account,Account short name and account number retrieved from SIBS/CBS and displayed on screen.,Verified,,,PASS,PASS,PASS,
+TC_CB_CD_P_01_004,Card-Based Cash Deposit,Validate telephone verification (if prompted),1. 0775504995,Enter valid telephone number and confirm,Telephone verified through SV and purpose screen displayed.,"Yes, as next Screen shows “Purpose Screen”",,,N/A,N/A,N/A,
+TC_CB_CD_P_01_005,Card-Based Cash Deposit,Valid remarks submission,"1. Tray ""Text & Numbers"" ",Enter valid remarks and confirm,Validate Remarks through SV and  accepted and cash deposit instruction displayed,"Yes, as next Screen shows “Cash Deposit Instruction”",,,PASS,PASS,PASS,
+TC_CB_CD_P_01_006,Card-Based Cash Deposit,Continue deposit process,,Select Continue after instructions,Cash deposit slot opens,"Yes, Dispenser open",,,PASS,PASS,PASS,
+TC_CB_CD_P_01_007,Card-Based Cash Deposit,Single cash insertion,,Insert valid denomination within limits,Cash amount verified and confirmation displayed,Yes,,,PASS,PASS,PASS,
+TC_CB_CD_P_01_008,Card-Based Cash Deposit,Add more cash,1. Add more cash notes.,Insert cash and select Add More,System accepts additional cash and updates amount,"Yes, amount updated and shows “Confirm the cash details screen",,,PASS,PASS,PASS,
+TC_CB_CD_P_01_009,Card-Based Cash Deposit,Confirm deposit details,1. Using BTS check A/C balance,Review confirmation screen and confirm,Transaction sent to core banking and completed,Transection successfully and update the SIBS,,,PASS,PASS,PASS,
+TC_CB_CD_P_01_010,Card-Based Cash Deposit,Receive receipt and eject card,1. Print hard copy of recept,Successful completion,Printed receipt and SMS e-receipt delivered,Printed receipt ,,,PASS,PASS,PASS,

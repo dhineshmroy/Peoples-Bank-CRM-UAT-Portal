@@ -1,0 +1,24 @@
+Admin / Supervisor Functions - Positive Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_Sup_P_01_001,Admin / Supervisor,Successful Supervisor / Admin card login,"1. Valid Admin / Supervisor Card.
+2. Valid Admin PIN / Credentials.
+",Insert Admin Card > Enter valid PIN / credentials,Admin main menu / Supervisor portal options displayed successfully.,,,,,,,,
+TC_CB_Sup_P_01_002,Admin / Supervisor,Successful Cash Load / Replenishment process,"1. Machine in Supervisor mode.
+2. Physical cash loaded into cassettes.
+",Login Admin > Select Cash Load / Replenishment > Select Cassettes > Input note counts/denominations per cassette > Confirm,"System updates cassette note counts in FE/SIBS, prints replenishment audit receipt, and updates machine status to In-Service.",,,,,,,,
+TC_CB_Sup_P_01_003,Admin / Supervisor,Configure / Update Cassette Denominations,1. Machine in Supervisor mode.,"Select Cassette Setup > Assign note values (e.g., Rs. 5000, 1000, 500) to Cassettes 1-4 > Save",Cassette configuration saved successfully in FE and synchronized with SIBS/Host.,,,,,,,,
+TC_CB_Sup_P_01_004,Admin / Supervisor,Successful Cash Unload / Cash Clear process,"1. Machine in Supervisor mode.
+2. Existing cash in cassettes.
+",Select Cash Clear / Unload > Confirm cash removal from cassettes,"System zeroes out cassette note counters, updates SIBS/Host balance, and prints Cash Clear audit report.",,,,,,,,
+TC_CB_Sup_P_01_005,Admin / Supervisor,Execute Test Cash Dispense / Test Cash Physical Cycle,"1. Cash loaded in cassettes.
+2. Machine in Supervisor mode.
+","Select Diagnostics / Test Dispense > Select cassette > Enter test quantity (e.g., 2 notes) > Confirm",Dispenser cycles notes cleanly into reject/test tray without updating customer account balances or SIBS counters.,,,,,,,,
+TC_CB_Sup_P_01_006,Admin / Supervisor,Clear Retract / Reject Bin Counters,"1. Physical cash removed from reject bin.
+2. Supervisor logged in.
+",Select Reject/Retract Bin Management > Select Clear Bin Counter > Confirm,System resets reject/retract bin counter to 0 and logs event in supervisor audit log.,,,,,,,,
+TC_CB_Sup_P_01_007,Admin / Supervisor,Print Electronic Journal (EJ) / Audit Report,"1. Supervisor logged in.
+2. Audit logs present.
+",Select Reports / Audit Log > Select date range / Shift > Select Print Report,"Physical audit receipt printed containing total deposits, total withdrawals, and current cassette balances.",,,,,,,,
+TC_CB_Sup_P_01_008,Admin / Supervisor,Switch ATM Status from Out-of-Service to In-Service,1. Maintenance / Replenishment complete.,Select Mode Change > Change status to In-Service > Exit Admin Mode > Eject Admin Card,Machine transitions to customer home screen and sets status to In-Service in FE & SIBS.,,,,,,,,
+TC_CB_Sup_P_01_009,Admin / Supervisor,Switch ATM Status from In-Service to Out-of-Service,1. Machine operational.,Insert Admin Card > Enter PIN > Select Set Out-of-Service,"Customer screens show ""Out of Service"" or ""Temporarily Unavailable"" message; host notified in SIBS.",,,,,,,,
+TC_CB_Sup_P_01_010,Admin / Supervisor,Perform Hardware Diagnostics & Status Check,1. Supervisor logged in.,"Select Hardware Diagnostics > Run test on Card Reader, Dispenser, Acceptor, and Printer","All hardware components tested and diagnostic report returns ""OK / Pass"" status for all modules.",,,,,,,,

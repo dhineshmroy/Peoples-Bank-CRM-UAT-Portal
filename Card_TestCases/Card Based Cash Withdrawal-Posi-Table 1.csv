@@ -1,0 +1,31 @@
+CD-01: Cardless PIC / PLC - Positive Senarious,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,Status,FE,SIBS,Remarks
+TC_CB_CW_P_01_001,Card-Based Cash Withdrawal,Verify end-to-end successful card cash withdrawal (Savings Account),"1. Active Debit/ATM Card.
+2. Sufficient balance in account.
+3. Cash available in dispenser.
+","Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Savings Account > Enter valid amount (e.g., Rs. 5,000) > Select Receipt Option > Take Cash > Take Receipt & Card","Cash dispensed successfully, account debited in SIBS/CBS, printed receipt provided, and card ejected.",,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_002,Card-Based Cash Withdrawal,Verify cash withdrawal from Current Account,"1. Active Debit Card linked to Current A/C.
+2. Sufficient account balance.
+",Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Current Account > Enter valid amount > Confirm,"Cash dispensed, Current account debited in CBS, and receipt printed.",,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_003,Card-Based Cash Withdrawal,Verify Fast Cash withdrawal option,"1. Active Debit Card.
+2. Sufficient balance.
+","Insert Card > Select Language > Enter valid PIN > Select Fast Cash > Choose preset amount (e.g., Rs. 1,000 / Rs. 2,000)","Preset cash amount dispensed immediately, account debited in CBS, and card ejected.",,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_004,Card-Based Cash Withdrawal,Verify maximum allowable single withdrawal limit,"1. Active Debit Card with high balance.
+2. Machine loaded with sufficient cash.
+","Insert Card > Select PIN > Select Withdrawal > Enter max single transaction limit (e.g., Rs. 40,000 / Rs. 100,000) > Confirm","System processes max limit, dispenses notes, updates SIBS/CBS balance, and prints receipt.",,,,,,,
+TC_CB_CW_P_01_005,Card-Based Cash Withdrawal,Verify minimum allowable cash withdrawal limit,"1. Active Debit Card.
+2. Balance > minimum note denomination.
+","Insert Card > Select PIN > Select Withdrawal > Enter minimum note denomination (e.g., Rs. 100 or Rs. 500) > Confirm","System dispenses single note/minimum amount, updates SIBS/CBS, and prints receipt.",,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_006,Card-Based Cash Withdrawal,Verify withdrawal with custom denomination selection (if supported),"1. Active Debit Card.
+2. Multiple note denominations loaded in cassettes.
+",Insert Card > Select PIN > Select Withdrawal > Enter amount > Choose denomination mix preference > Confirm,System dispenses cash matching the requested note mix preference.,,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_007,Card-Based Cash Withdrawal,Verify withdrawal when paper receipt is unavailable / paper low,"1. Active Debit Card.
+2. Receipt paper low or empty in machine.
+","Insert Card > Select PIN > Select Withdrawal > Accept ""No Receipt / E-Receipt"" prompt > Enter amount > Confirm","Cash dispensed successfully, e-receipt/SMS sent to mobile number, no paper printed, card ejected.",,,,N/A,N/A,N/A,E-receipt unavailbale
+TC_CB_CW_P_01_008,Card-Based Cash Withdrawal,Verify multiple consecutive cash withdrawals in a single session,"1. Active Debit Card.
+2. Sufficient balance for multiple withdrawals.
+",Insert Card > Select PIN > Perform 1st Withdrawal > Take Cash > Select Another Transaction > Perform 2nd Withdrawal > Confirm,"Both transactions complete successfully, individual CBS debit postings recorded, receipts issued, and card ejected at end.",,,,FAIL,FAIL,FAIL,There’s no “would you like another service” screen
+TC_CB_CW_P_01_009,Card-Based Cash Withdrawal,Verify dispenser shutter & cash presenter timing,"1. Active Debit Card.
+2. Machine operational.
+",Complete cash withdrawal steps > Wait for cash presenter door to open,"Cash presenter door opens, notes held safely in shutter, cash retrieved by user, door closes cleanly.",,,,PASS,PASS,PASS,
+TC_CB_CW_P_01_010,Card-Based Cash Withdrawal,Verify card ejection before cash dispensation (Security sequence),1. Active Debit Card.,Insert Card > Enter PIN > Complete withdrawal steps,"Machine prompts user to remove card first, then opens cash presenter shutter to dispense cash.",,,,PASS,PASS,PASS,

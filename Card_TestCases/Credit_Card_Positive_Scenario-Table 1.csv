@@ -1,0 +1,45 @@
+Credit Card Functions - Positive Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_CR_P_01_001,Balance Inquiry,Verify successful balance inquiry displaying Actual & Available Balance,"1. CRM machine is online.
+2. Valid Mastercard with active PIN.
+","1. Insert Mastercard.
+2. Select Language.
+3. Enter valid PIN.
+4. Select 'Balance Inquiry'.
+5. Press 'Proceed'.
+","1. Screen displays Actual & Available balance.
+2. Receipt printed with RRN & STAN/UTANO.
+3. Card ejected cleanly.
+",,,,,,,,
+TC_CB_CR_P_01_002,Cash Advance,Verify successful Cash Advance with preset withdrawal amount,"1. CRM cassette has cash.
+2. Card has sufficient credit limit.
+","1. Insert card & enter PIN.
+2. Select 'Cash Advance'.
+3. Select preset amount (LKR 10,000).
+4. Confirm transaction.
+","1. Cash dispensed (LKR 10,000).
+2. Limit reduced in SIBS.
+3. Receipt printed with RRN/UTANO.
+4. Card ejected.
+",,,,,,,,
+TC_CB_CR_P_01_003,Cash Advance,Verify successful Cash Advance with custom amount entry,"1. CRM cassette has cash.
+2. Card has sufficient credit limit.
+","1. Insert card & enter PIN.
+2. Select 'Cash Advance'.
+3. Input custom amount (LKR 15,000).
+4. Confirm.
+","1. LKR 15,000 cash dispensed.
+2. Balance updated in SIBS.
+3. Receipt generated.
+4. Card returned.
+",,,,,,,,
+TC_CB_CR_P_01_004,PIN Change,Verify successful PIN change operation,"1. Card status is Active.
+2. Customer knows current PIN.
+","1. Insert card & enter current PIN.
+2. Select 'PIN Change'.
+3. Enter New PIN.
+4. Re-enter New PIN.
+","1. Screen displays 'PIN Changed Successfully'.
+2. Switch & SIBS update PIN block.
+3. Receipt printed.
+",,,,,,,,
