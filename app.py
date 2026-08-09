@@ -9,6 +9,14 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import psycopg2
 
+
+
+
+
+
+# ---------------------------------------------------------
+# POSTGRESQL / SUPABASE DATABASE CONNECTION
+# ---------------------------------------------------------
 def get_db_connection():
     try:
         db_url = st.secrets["postgres"]["url"]
@@ -30,21 +38,6 @@ UPLOAD_DIR = "uploads"
 os.makedirs(os.path.join(UPLOAD_DIR, "receipts"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "photos"), exist_ok=True)
 
-# ---------------------------------------------------------
-# ORACLE DATABASE CONNECTION & HELPER FUNCTIONS
-# ---------------------------------------------------------
-def get_db_connection():
-    try:
-        connection = oracledb.connect(
-            user="SYSTEM",
-            password="Dhinesh@98",
-            dsn="localhost:1521/FREEPDB1"
-        )
-        return connection
-    except Exception as e:
-        st.error(f"Database Connection Failed: {e}")
-        return None
-
 def clean_val(val):
     if val is None:
         return None
@@ -61,33 +54,33 @@ def load_data_from_db():
     try:
         query = """
             SELECT 
-                TC_ID as "TC ID", 
-                CATEGORY as "Category",
-                MODULE_NAME as "Module Name", 
-                TEST_AREA as "Test Area", 
-                TEST_CASE_DESCRIPTION as "Test Case Description", 
-                PRE_CONDITIONS as "Pre-Conditions",
-                TEST_STEPS as "Test Steps", 
-                EXPECTED_RESULT as "Expected Result", 
-                PATH_TYPE as "Path Type", 
-                ACTUAL_RESULT as "Actual Result", 
-                RRN as "RRN",
-                UTANO as "Utano", 
-                STATUS as "Status", 
-                FE as "FE", 
-                SIBS as "SIBS",
-                REMARKS as "Remarks", 
-                EXECUTED_BY as "Executed By", 
-                EXECUTED_DATE as "Executed Date", 
-                RECEIPT_PATH as "Receipt_Path",
-                PHOTO_PATH as "Photo_Path",
-                SEVERITY as "Severity",
-                PRIORITY as "Priority",
-                DEFECT_STATUS as "Defect Status",
-                ASSIGNED_TO as "Assigned To",
-                TARGET_DATE as "Target Date",
-                ROOT_CAUSE as "Root Cause",
-                DEFECT_DESCRIPTION as "Defect Description"
+                "TC_ID" as "TC ID", 
+                "CATEGORY" as "Category",
+                "MODULE_NAME" as "Module Name", 
+                "TEST_AREA" as "Test Area", 
+                "TEST_CASE_DESCRIPTION" as "Test Case Description", 
+                "PRE_CONDITIONS" as "Pre-Conditions",
+                "TEST_STEPS" as "Test Steps", 
+                "EXPECTED_RESULT" as "Expected Result", 
+                "PATH_TYPE" as "Path Type", 
+                "ACTUAL_RESULT" as "Actual Result", 
+                "RRN" as "RRN",
+                "UTANO" as "Utano", 
+                "STATUS" as "Status", 
+                "FE" as "FE", 
+                "SIBS" as "SIBS",
+                "REMARKS" as "Remarks", 
+                "EXECUTED_BY" as "Executed By", 
+                "EXECUTED_DATE" as "Executed Date", 
+                "RECEIPT_PATH" as "Receipt_Path",
+                "PHOTO_PATH" as "Photo_Path",
+                "SEVERITY" as "Severity",
+                "PRIORITY" as "Priority",
+                "DEFECT_STATUS" as "Defect Status",
+                "ASSIGNED_TO" as "Assigned To",
+                "TARGET_DATE" as "Target Date",
+                "ROOT_CAUSE" as "Root Cause",
+                "DEFECT_DESCRIPTION" as "Defect Description"
             FROM uat_test_cases_v2
         """
         df = pd.read_sql(query, con=conn)
@@ -97,7 +90,7 @@ def load_data_from_db():
     except Exception as e:
         if conn:
             conn.close()
-        st.error(f"Error loading data from Oracle DB: {e}")
+        st.error(f"Error loading data from PostgreSQL: {e}")
         return pd.DataFrame()
 
 def derive_rrn(utano_val):
@@ -110,7 +103,6 @@ def derive_rrn(utano_val):
         return u_str[6:]
     return u_str
 
-
 def delete_test_case_from_db(tc_id, module_name):
     conn = get_db_connection()
     if not conn:
@@ -119,19 +111,17 @@ def delete_test_case_from_db(tc_id, module_name):
     try:
         cursor.execute("""
             DELETE FROM uat_test_cases_v2 
-            WHERE tc_id = :1 AND module_name = :2
+            WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
         """, (clean_val(tc_id), clean_val(module_name)))
         conn.commit()
         cursor.close()
         conn.close()
         return True
     except Exception as e:
-        st.error(f"Failed to delete test case from Oracle DB: {e}")
+        st.error(f"Failed to delete test case from database: {e}")
         cursor.close()
         conn.close()
         return False
-
-
 
 def safe_basename(path_val):
     p_clean = clean_val(path_val)
@@ -167,17 +157,17 @@ def save_test_case_to_db(tc_id, module_name, status, actual_result, fe, sibs, ut
         if c_def_desc:
             cursor.execute("""
                 UPDATE uat_test_cases_v2 
-                SET status = :1, actual_result = :2, fe = :3, sibs = :4, utano = :5, rrn = :6, 
-                    remarks = :7, executed_by = :8, executed_date = :9, receipt_path = :10, photo_path = :11,
-                    defect_description = :12, defect_status = 'Open'
-                WHERE tc_id = :13 AND module_name = :14
+                SET "STATUS" = %s, "ACTUAL_RESULT" = %s, "FE" = %s, "SIBS" = %s, "UTANO" = %s, "RRN" = %s, 
+                    "REMARKS" = %s, "EXECUTED_BY" = %s, "EXECUTED_DATE" = %s, "RECEIPT_PATH" = %s, "PHOTO_PATH" = %s,
+                    "DEFECT_DESCRIPTION" = %s, "DEFECT_STATUS" = 'Open'
+                WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
             """, (status, c_actual, c_fe, c_sibs, c_utano, c_rrn, c_remarks, c_exec_by, c_exec_date, c_rec_path, c_pho_path, c_def_desc, tc_id, module_name))
         else:
             cursor.execute("""
                 UPDATE uat_test_cases_v2 
-                SET status = :1, actual_result = :2, fe = :3, sibs = :4, utano = :5, rrn = :6, 
-                    remarks = :7, executed_by = :8, executed_date = :9, receipt_path = :10, photo_path = :11
-                WHERE tc_id = :12 AND module_name = :13
+                SET "STATUS" = %s, "ACTUAL_RESULT" = %s, "FE" = %s, "SIBS" = %s, "UTANO" = %s, "RRN" = %s, 
+                    "REMARKS" = %s, "EXECUTED_BY" = %s, "EXECUTED_DATE" = %s, "RECEIPT_PATH" = %s, "PHOTO_PATH" = %s
+                WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
             """, (status, c_actual, c_fe, c_sibs, c_utano, c_rrn, c_remarks, c_exec_by, c_exec_date, c_rec_path, c_pho_path, tc_id, module_name))
         conn.commit()
     except Exception as e:
@@ -209,10 +199,10 @@ def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_resu
     try:
         cursor.execute("""
             UPDATE uat_test_cases_v2 
-            SET test_steps = :1, actual_result = :2, executed_by = :3, utano = :4, rrn = :5, 
-                fe = :6, sibs = :7, severity = :8, priority = :9, defect_status = :10, 
-                assigned_to = :11, target_date = :12, root_cause = :13
-            WHERE tc_id = :14 AND module_name = :15
+            SET "TEST_STEPS" = %s, "ACTUAL_RESULT" = %s, "EXECUTED_BY" = %s, "UTANO" = %s, "RRN" = %s, 
+                "FE" = %s, "SIBS" = %s, "SEVERITY" = %s, "PRIORITY" = %s, "DEFECT_STATUS" = %s, 
+                "ASSIGNED_TO" = %s, "TARGET_DATE" = %s, "ROOT_CAUSE" = %s
+            WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
         """, (c_steps, c_act, c_exec_by, c_utano, c_rrn, c_fe, c_sibs, c_sev, c_pri, c_def_status, c_assigned, c_target, c_root, tc_id, module_name))
         conn.commit()
     except Exception as e:
@@ -228,22 +218,21 @@ def insert_new_test_case_to_db(tc_id, category, module_name, test_area, test_des
     try:
         cursor.execute("""
             INSERT INTO uat_test_cases_v2 (
-                TC_ID, CATEGORY, MODULE_NAME, TEST_AREA, TEST_CASE_DESCRIPTION, 
-                PRE_CONDITIONS, TEST_STEPS, EXPECTED_RESULT, PATH_TYPE, STATUS,
-                SEVERITY, PRIORITY, DEFECT_STATUS, ASSIGNED_TO
-            ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, 'PENDING', 'Medium', 'Medium', 'Open', 'Development Team')
+                "TC_ID", "CATEGORY", "MODULE_NAME", "TEST_AREA", "TEST_CASE_DESCRIPTION", 
+                "PRE_CONDITIONS", "TEST_STEPS", "EXPECTED_RESULT", "PATH_TYPE", "STATUS",
+                "SEVERITY", "PRIORITY", "DEFECT_STATUS", "ASSIGNED_TO"
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', 'Medium', 'Medium', 'Open', 'Development Team')
         """, (clean_val(tc_id), clean_val(category), clean_val(module_name), clean_val(test_area), 
               clean_val(test_desc), clean_val(pre_cond), clean_val(test_steps), clean_val(exp_result), clean_val(path_type)))
         conn.commit()
         cursor.close()
         conn.close()
         
-        # Clear cache/session state so the app immediately pulls the newly added test case from Oracle DB
         if hasattr(st, "cache_data"):
             st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"Failed to insert test case into Oracle DB: {e}")
+        st.error(f"Failed to insert test case into database: {e}")
         cursor.close()
         conn.close()
         return False
@@ -253,7 +242,7 @@ def get_crm_lock_from_db():
     if not conn:
         return "AVAILABLE", ""
     cursor = conn.cursor()
-    cursor.execute("SELECT crm_status, locked_by FROM crm_machine_status WHERE lock_id = 1")
+    cursor.execute('SELECT "crm_status", "locked_by" FROM "crm_machine_status" WHERE "lock_id" = 1')
     row = cursor.fetchone()
     cursor.close()
     conn.close()
@@ -267,9 +256,9 @@ def update_crm_lock_in_db(status, user):
         return
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE crm_machine_status 
-        SET crm_status = :1, locked_by = :2, last_updated = CURRENT_TIMESTAMP
-        WHERE lock_id = 1
+        UPDATE "crm_machine_status" 
+        SET "crm_status" = %s, "locked_by" = %s, "last_updated" = CURRENT_TIMESTAMP
+        WHERE "lock_id" = 1
     """, (status, user))
     conn.commit()
     cursor.close()
@@ -350,166 +339,526 @@ def generate_professional_report_excel(df_data, report_title="UAT FILTERED REPOR
     output.seek(0)
     return output
 
-def generate_official_defect_register_excel(defect_df):
-    output = io.BytesIO()
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Defect Tracking Register"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def get_db_connection():
+#     try:
+#         db_url = st.secrets["postgres"]["url"]
+#         conn = psycopg2.connect(db_url)
+#         return conn
+#     except Exception as e:
+#         st.error(f"PostgreSQL Connection Failed: {e}")
+#         return None
+
+# # Page Configuration
+# st.set_page_config(
+#     page_title="People's Bank | GRG CRM UAT Portal",
+#     page_icon="🏦",
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
+
+# UPLOAD_DIR = "uploads"
+# os.makedirs(os.path.join(UPLOAD_DIR, "receipts"), exist_ok=True)
+# os.makedirs(os.path.join(UPLOAD_DIR, "photos"), exist_ok=True)
+
+# # ---------------------------------------------------------
+# # ORACLE DATABASE CONNECTION & HELPER FUNCTIONS
+# # ---------------------------------------------------------
+# def get_db_connection():
+#     try:
+#         connection = oracledb.connect(
+#             user="SYSTEM",
+#             password="Dhinesh@98",
+#             dsn="localhost:1521/FREEPDB1"
+#         )
+#         return connection
+#     except Exception as e:
+#         st.error(f"Database Connection Failed: {e}")
+#         return None
+
+# def clean_val(val):
+#     if val is None:
+#         return None
+#     s = str(val).strip()
+#     if not s or s.lower() in ["nan", "none", "", "nat"]:
+#         return None
+#     return s
+
+# def load_data_from_db():
+#     conn = get_db_connection()
+#     if not conn:
+#         return pd.DataFrame()
     
-    ws.views.sheetView[0].showGridLines = True
-    font_family = "Calibri"
+#     try:
+#         query = """
+#             SELECT 
+#                 TC_ID as "TC ID", 
+#                 CATEGORY as "Category",
+#                 MODULE_NAME as "Module Name", 
+#                 TEST_AREA as "Test Area", 
+#                 TEST_CASE_DESCRIPTION as "Test Case Description", 
+#                 PRE_CONDITIONS as "Pre-Conditions",
+#                 TEST_STEPS as "Test Steps", 
+#                 EXPECTED_RESULT as "Expected Result", 
+#                 PATH_TYPE as "Path Type", 
+#                 ACTUAL_RESULT as "Actual Result", 
+#                 RRN as "RRN",
+#                 UTANO as "Utano", 
+#                 STATUS as "Status", 
+#                 FE as "FE", 
+#                 SIBS as "SIBS",
+#                 REMARKS as "Remarks", 
+#                 EXECUTED_BY as "Executed By", 
+#                 EXECUTED_DATE as "Executed Date", 
+#                 RECEIPT_PATH as "Receipt_Path",
+#                 PHOTO_PATH as "Photo_Path",
+#                 SEVERITY as "Severity",
+#                 PRIORITY as "Priority",
+#                 DEFECT_STATUS as "Defect Status",
+#                 ASSIGNED_TO as "Assigned To",
+#                 TARGET_DATE as "Target Date",
+#                 ROOT_CAUSE as "Root Cause",
+#                 DEFECT_DESCRIPTION as "Defect Description"
+#             FROM uat_test_cases_v2
+#         """
+#         df = pd.read_sql(query, con=conn)
+#         conn.close()
+#         df = df.fillna("")
+#         return df
+#     except Exception as e:
+#         if conn:
+#             conn.close()
+#         st.error(f"Error loading data from Oracle DB: {e}")
+#         return pd.DataFrame()
+
+# def derive_rrn(utano_val):
+#     u_str = str(utano_val).strip()
+#     if not u_str or u_str.lower() in ["nan", "none", "", "nat"]:
+#         return "N/A"
+#     if u_str.endswith(".0"):
+#         u_str = u_str[:-2]
+#     if len(u_str) > 6:
+#         return u_str[6:]
+#     return u_str
+
+
+# def delete_test_case_from_db(tc_id, module_name):
+#     conn = get_db_connection()
+#     if not conn:
+#         return False
+#     cursor = conn.cursor()
+#     try:
+#         cursor.execute("""
+#             DELETE FROM uat_test_cases_v2 
+#             WHERE tc_id = :1 AND module_name = :2
+#         """, (clean_val(tc_id), clean_val(module_name)))
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
+#         return True
+#     except Exception as e:
+#         st.error(f"Failed to delete test case from Oracle DB: {e}")
+#         cursor.close()
+#         conn.close()
+#         return False
+
+
+
+# def safe_basename(path_val):
+#     p_clean = clean_val(path_val)
+#     if not p_clean:
+#         return ""
+#     try:
+#         return os.path.basename(p_clean)
+#     except Exception:
+#         return ""
+
+# def save_test_case_to_db(tc_id, module_name, status, actual_result, fe, sibs, utano, remarks, executed_by, executed_date, receipt_path, photo_path, defect_desc=""):
+#     conn = get_db_connection()
+#     if not conn:
+#         return
+#     cursor = conn.cursor()
     
-    fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    fill_yellow_banner = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-    fill_gray_section = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-    fill_table_header = PatternFill(start_color="BFBFBF", end_color="BFBFBF", fill_type="solid")
+#     c_actual = clean_val(actual_result)
+#     c_fe = clean_val(fe)
+#     c_sibs = clean_val(sibs)
+#     c_utano = clean_val(utano)
     
-    font_title = Font(name=font_family, size=11, bold=True, color="FFFFFF")
-    font_section = Font(name=font_family, size=10, bold=True, color="000000")
-    font_bold = Font(name=font_family, size=10, bold=True)
-    font_regular = Font(name=font_family, size=10)
+#     rrn_val = derive_rrn(c_utano)
+#     c_rrn = None if rrn_val == "N/A" else rrn_val
     
-    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+#     c_remarks = clean_val(remarks)
+#     c_exec_by = clean_val(executed_by)
+#     c_exec_date = clean_val(executed_date)
+#     c_rec_path = clean_val(receipt_path)
+#     c_pho_path = clean_val(photo_path)
+#     c_def_desc = clean_val(defect_desc)
     
-    thin_border_side = Side(border_style="thin", color="000000")
-    box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+#     try:
+#         if c_def_desc:
+#             cursor.execute("""
+#                 UPDATE uat_test_cases_v2 
+#                 SET status = :1, actual_result = :2, fe = :3, sibs = :4, utano = :5, rrn = :6, 
+#                     remarks = :7, executed_by = :8, executed_date = :9, receipt_path = :10, photo_path = :11,
+#                     defect_description = :12, defect_status = 'Open'
+#                 WHERE tc_id = :13 AND module_name = :14
+#             """, (status, c_actual, c_fe, c_sibs, c_utano, c_rrn, c_remarks, c_exec_by, c_exec_date, c_rec_path, c_pho_path, c_def_desc, tc_id, module_name))
+#         else:
+#             cursor.execute("""
+#                 UPDATE uat_test_cases_v2 
+#                 SET status = :1, actual_result = :2, fe = :3, sibs = :4, utano = :5, rrn = :6, 
+#                     remarks = :7, executed_by = :8, executed_date = :9, receipt_path = :10, photo_path = :11
+#                 WHERE tc_id = :12 AND module_name = :13
+#             """, (status, c_actual, c_fe, c_sibs, c_utano, c_rrn, c_remarks, c_exec_by, c_exec_date, c_rec_path, c_pho_path, tc_id, module_name))
+#         conn.commit()
+#     except Exception as e:
+#         st.error(f"Database error updating test case: {e}")
+#     cursor.close()
+#     conn.close()
 
-    ws.merge_cells('U1:U1')
-    cell = ws['A1']
-    cell.value = "UAT DEFECT TRACKING REGISTER"
-    cell.font = font_title
-    cell.fill = fill_dark_header
-    cell.alignment = align_center
-    ws.row_dimensions[1].height = 25
-
-    ws['R2'] = "IT-IMP-025: Defect Tracking Register Template"
-    ws['R2'].font = font_regular
-    ws['R3'] = "Version: 1.0"
-    ws['R3'].font = font_regular
-    ws['R4'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
-    ws['R4'].font = font_regular
-
-    ws.merge_cells('A5:U5')
-    cell = ws['A5']
-    cell.value = "PART I: PROJECT INFORMATION"
-    cell.font = font_section
-    cell.fill = fill_gray_section
-    cell.alignment = align_left
-    ws.row_dimensions[5].height = 20
-
-    ws['A6'] = "Project Name"
-    ws['A6'].font = font_bold
-    ws['A6'].fill = fill_yellow_banner
-    ws['A6'].border = box_border
+# def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_result, executed_by, utano, fe, sibs, severity, priority, defect_status, assigned_to, target_date, root_cause, origin_build, defect_desc, defect_steps, defect_expected, defect_attachment, cr_ref, defect_cat, expected_date_closure, fixing_date, closed_by, date_closure, comments, date_defect_origin, detected_by):
+#     conn = get_db_connection()
+#     if not conn:
+#         return
+#     cursor = conn.cursor()
     
-    ws.merge_cells('C6:E6')
-    ws['C6'] = "People's Bank CRM Testing & Integration"
-    ws['C6'].font = font_regular
-    ws['C6'].border = box_border
+#     c_steps = clean_val(test_steps)
+#     c_act = clean_val(actual_result)
+#     c_exec_by = clean_val(executed_by)
+#     c_utano = clean_val(utano)
+#     rrn_val = derive_rrn(c_utano)
+#     c_rrn = None if rrn_val == "N/A" else rrn_val
+#     c_fe = clean_val(fe)
+#     c_sibs = clean_val(sibs)
+#     c_sev = clean_val(severity)
+#     c_pri = clean_val(priority)
+#     c_def_status = clean_val(defect_status)
+#     c_assigned = clean_val(assigned_to)
+#     c_target = clean_val(target_date)
+#     c_root = clean_val(root_cause)
 
-    ws['P6'] = "Program #"
-    ws['P6'].font = font_bold
-    ws['P6'].fill = fill_yellow_banner
-    ws['P6'].border = box_border
-    ws['R6'] = "IT PM"
-    ws['R6'].font = font_regular
-    ws['R6'].border = box_border
+#     try:
+#         cursor.execute("""
+#             UPDATE uat_test_cases_v2 
+#             SET test_steps = :1, actual_result = :2, executed_by = :3, utano = :4, rrn = :5, 
+#                 fe = :6, sibs = :7, severity = :8, priority = :9, defect_status = :10, 
+#                 assigned_to = :11, target_date = :12, root_cause = :13
+#             WHERE tc_id = :14 AND module_name = :15
+#         """, (c_steps, c_act, c_exec_by, c_utano, c_rrn, c_fe, c_sibs, c_sev, c_pri, c_def_status, c_assigned, c_target, c_root, tc_id, module_name))
+#         conn.commit()
+#     except Exception as e:
+#         st.error(f"Database error updating defect details: {e}")
+#     cursor.close()
+#     conn.close()
 
-    ws.merge_cells('A7:B7')
-    ws['A7'] = "Project Sponsor"
-    ws['A7'].font = font_bold
-    ws['A7'].fill = fill_yellow_banner
-    ws['A7'].border = box_border
-    
-    ws.merge_cells('C7:E7')
-    ws['C7'] = "People's Bank IT Department"
-    ws['C7'].font = font_regular
-    ws['C7'].border = box_border
-
-    ws['P7'] = "Project Manager"
-    ws['P7'].font = font_bold
-    ws['P7'].fill = fill_yellow_banner
-    ws['P7'].border = box_border
-    ws['R7'] = datetime.today().strftime('%d/%m/%Y')
-    ws['R7'].font = font_regular
-    ws['R7'].border = box_border
-
-    ws.merge_cells('A9:U9')
-    cell = ws['A9']
-    cell.value = "PART II: DEFECTS"
-    cell.font = font_section
-    cell.fill = fill_gray_section
-    cell.alignment = align_left
-    ws.row_dimensions[9].height = 20
-
-    headers = [
-        "Origin (Build)", "Defect No.", "Defect Description", "Steps to Reproduce", "Expected Results",
-        "Defect Attachment", "CR Reference", "Application / Module", "Defect Category", "Severity",
-        "Priority", "Defect Status", "Detected By", "Date of Defect Origin", "Assigned To",
-        "Expected Date of Closure", "Fixing Date", "Closed By", "Date of Closure",
-        "SLA = (Date of Closure - Expected date of Closure)", "Comments"
-    ]
-    
-    ws.row_dimensions[10].height = 30
-    for col_idx, h_text in enumerate(headers, 1):
-        c = ws.cell(row=10, column=col_idx)
-        c.value = h_text
-        c.font = font_bold
-        c.fill = fill_table_header
-        c.alignment = align_center
-        c.border = box_border
-
-    curr_row = 11
-    for idx, r in defect_df.iterrows():
-        ws.row_dimensions[curr_row].height = 45
-        row_data = [
-            r.get('Origin (Build)', 'CRM V2'),
-            r.get('TC ID', ''),
-            r.get('Defect Description', r.get('Test Case Description', '')),
-            r.get('Steps to Reproduce', r.get('Test Steps', '')),
-            r.get('Expected Results', r.get('Expected Result', '')),
-            r.get('Defect Attachment', safe_basename(r.get('Photo_Path', r.get('Receipt_Path', '')))),
-            r.get('CR Reference', ''),
-            r.get('Module Name', ''),
-            r.get('Defect Category', r.get('Category', '')),
-            r.get('Severity', 'Medium'),
-            r.get('Priority', 'Medium'),
-            r.get('Defect Status', 'Open'),
-            r.get('Detected By', r.get('Executed By', '')),
-            r.get('Date of Defect Origin', r.get('Executed Date', '')),
-            r.get('Assigned To', 'Development Team'),
-            r.get('Expected Date of Closure', r.get('Target Date', '')),
-            r.get('Fixing Date', ''),
-            r.get('Closed By', ''),
-            r.get('Date of Closure', ''),
-            r.get('SLA', ''),
-            r.get('Comments', r.get('Remarks', ''))
-        ]
+# def insert_new_test_case_to_db(tc_id, category, module_name, test_area, test_desc, pre_cond, test_steps, exp_result, path_type):
+#     conn = get_db_connection()
+#     if not conn:
+#         return False
+#     cursor = conn.cursor()
+#     try:
+#         cursor.execute("""
+#             INSERT INTO uat_test_cases_v2 (
+#                 TC_ID, CATEGORY, MODULE_NAME, TEST_AREA, TEST_CASE_DESCRIPTION, 
+#                 PRE_CONDITIONS, TEST_STEPS, EXPECTED_RESULT, PATH_TYPE, STATUS,
+#                 SEVERITY, PRIORITY, DEFECT_STATUS, ASSIGNED_TO
+#             ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, 'PENDING', 'Medium', 'Medium', 'Open', 'Development Team')
+#         """, (clean_val(tc_id), clean_val(category), clean_val(module_name), clean_val(test_area), 
+#               clean_val(test_desc), clean_val(pre_cond), clean_val(test_steps), clean_val(exp_result), clean_val(path_type)))
+#         conn.commit()
+#         cursor.close()
+#         conn.close()
         
-        for col_idx, val in enumerate(row_data, 1):
-            c = ws.cell(row=curr_row, column=col_idx, value=val)
-            c.font = font_regular
-            c.border = box_border
-            if col_idx in [1, 2, 10, 11, 12, 14, 16, 17, 18, 19, 20]:
-                c.alignment = align_center
-            else:
-                c.alignment = align_left
-        curr_row += 1
+#         # Clear cache/session state so the app immediately pulls the newly added test case from Oracle DB
+#         if hasattr(st, "cache_data"):
+#             st.cache_data.clear()
+#         return True
+#     except Exception as e:
+#         st.error(f"Failed to insert test case into Oracle DB: {e}")
+#         cursor.close()
+#         conn.close()
+#         return False
 
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.row > 4:
-                val_str = str(cell.value or '')
-                if len(val_str) > max_len:
-                    max_len = len(val_str)
-        ws.column_dimensions[col_letter].width = max(min(max_len + 3, 35), 12)
+# def get_crm_lock_from_db():
+#     conn = get_db_connection()
+#     if not conn:
+#         return "AVAILABLE", ""
+#     cursor = conn.cursor()
+#     cursor.execute("SELECT crm_status, locked_by FROM crm_machine_status WHERE lock_id = 1")
+#     row = cursor.fetchone()
+#     cursor.close()
+#     conn.close()
+#     if row:
+#         return row[0], (row[1] if row[1] else "")
+#     return "AVAILABLE", ""
 
-    wb.save(output)
-    output.seek(0)
-    return output
+# def update_crm_lock_in_db(status, user):
+#     conn = get_db_connection()
+#     if not conn:
+#         return
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         UPDATE crm_machine_status 
+#         SET crm_status = :1, locked_by = :2, last_updated = CURRENT_TIMESTAMP
+#         WHERE lock_id = 1
+#     """, (status, user))
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+
+# def generate_professional_report_excel(df_data, report_title="UAT FILTERED REPORT"):
+#     output = io.BytesIO()
+#     wb = openpyxl.Workbook()
+#     ws = wb.active
+#     ws.title = "UAT Report"
+    
+#     ws.views.sheetView[0].showGridLines = True
+#     font_family = "Calibri"
+    
+#     fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+#     fill_table_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    
+#     font_title = Font(name=font_family, size=13, bold=True, color="FFFFFF")
+#     font_bold = Font(name=font_family, size=10, bold=True, color="000000")
+#     font_regular = Font(name=font_family, size=10, color="000000")
+    
+#     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+#     align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    
+#     thin_side = Side(border_style="thin", color="BFBFBF")
+#     box_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+#     max_col = max(len(df_data.columns), 8)
+#     end_col_letter = get_column_letter(max_col)
+
+#     ws.merge_cells(f'A1:{end_col_letter}1')
+#     cell = ws['A1']
+#     cell.value = f"PEOPLE'S BANK — {report_title}"
+#     cell.font = font_title
+#     cell.fill = fill_dark_header
+#     cell.alignment = align_center
+#     ws.row_dimensions[1].height = 30
+
+#     ws['A2'] = f"Generated Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+#     ws['A2'].font = font_regular
+#     ws.row_dimensions[2].height = 18
+
+#     ws.row_dimensions[4].height = 25
+#     headers = list(df_data.columns)
+#     for col_idx, h_text in enumerate(headers, 1):
+#         c = ws.cell(row=4, column=col_idx)
+#         c.value = h_text
+#         c.font = font_bold
+#         c.fill = fill_table_header
+#         c.alignment = align_center
+#         c.border = box_border
+
+#     curr_row = 5
+#     for _, r in df_data.iterrows():
+#         ws.row_dimensions[curr_row].height = 24
+#         for col_idx, col_name in enumerate(headers, 1):
+#             val = r.get(col_name, '')
+#             c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
+#             c.font = font_regular
+#             c.border = box_border
+#             if col_name in ['TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'Severity', 'Priority', 'Defect Status']:
+#                 c.alignment = align_center
+#             else:
+#                 c.alignment = align_left
+#         curr_row += 1
+
+#     for col in ws.columns:
+#         max_len = 0
+#         col_letter = get_column_letter(col[0].column)
+#         for cell in col:
+#             if cell.row >= 4:
+#                 val_str = str(cell.value or '')
+#                 if len(val_str) > max_len:
+#                     max_len = len(val_str)
+#         ws.column_dimensions[col_letter].width = max(min(max_len + 4, 40), 12)
+
+#     wb.save(output)
+#     output.seek(0)
+#     return output
+
+# def generate_official_defect_register_excel(defect_df):
+#     output = io.BytesIO()
+#     wb = openpyxl.Workbook()
+#     ws = wb.active
+#     ws.title = "Defect Tracking Register"
+    
+#     ws.views.sheetView[0].showGridLines = True
+#     font_family = "Calibri"
+    
+#     fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+#     fill_yellow_banner = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+#     fill_gray_section = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+#     fill_table_header = PatternFill(start_color="BFBFBF", end_color="BFBFBF", fill_type="solid")
+    
+#     font_title = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+#     font_section = Font(name=font_family, size=10, bold=True, color="000000")
+#     font_bold = Font(name=font_family, size=10, bold=True)
+#     font_regular = Font(name=font_family, size=10)
+    
+#     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+#     align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    
+#     thin_border_side = Side(border_style="thin", color="000000")
+#     box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+
+#     ws.merge_cells('U1:U1')
+#     cell = ws['A1']
+#     cell.value = "UAT DEFECT TRACKING REGISTER"
+#     cell.font = font_title
+#     cell.fill = fill_dark_header
+#     cell.alignment = align_center
+#     ws.row_dimensions[1].height = 25
+
+#     ws['R2'] = "IT-IMP-025: Defect Tracking Register Template"
+#     ws['R2'].font = font_regular
+#     ws['R3'] = "Version: 1.0"
+#     ws['R3'].font = font_regular
+#     ws['R4'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
+#     ws['R4'].font = font_regular
+
+#     ws.merge_cells('A5:U5')
+#     cell = ws['A5']
+#     cell.value = "PART I: PROJECT INFORMATION"
+#     cell.font = font_section
+#     cell.fill = fill_gray_section
+#     cell.alignment = align_left
+#     ws.row_dimensions[5].height = 20
+
+#     ws['A6'] = "Project Name"
+#     ws['A6'].font = font_bold
+#     ws['A6'].fill = fill_yellow_banner
+#     ws['A6'].border = box_border
+    
+#     ws.merge_cells('C6:E6')
+#     ws['C6'] = "People's Bank CRM Testing & Integration"
+#     ws['C6'].font = font_regular
+#     ws['C6'].border = box_border
+
+#     ws['P6'] = "Program #"
+#     ws['P6'].font = font_bold
+#     ws['P6'].fill = fill_yellow_banner
+#     ws['P6'].border = box_border
+#     ws['R6'] = "IT PM"
+#     ws['R6'].font = font_regular
+#     ws['R6'].border = box_border
+
+#     ws.merge_cells('A7:B7')
+#     ws['A7'] = "Project Sponsor"
+#     ws['A7'].font = font_bold
+#     ws['A7'].fill = fill_yellow_banner
+#     ws['A7'].border = box_border
+    
+#     ws.merge_cells('C7:E7')
+#     ws['C7'] = "People's Bank IT Department"
+#     ws['C7'].font = font_regular
+#     ws['C7'].border = box_border
+
+#     ws['P7'] = "Project Manager"
+#     ws['P7'].font = font_bold
+#     ws['P7'].fill = fill_yellow_banner
+#     ws['P7'].border = box_border
+#     ws['R7'] = datetime.today().strftime('%d/%m/%Y')
+#     ws['R7'].font = font_regular
+#     ws['R7'].border = box_border
+
+#     ws.merge_cells('A9:U9')
+#     cell = ws['A9']
+#     cell.value = "PART II: DEFECTS"
+#     cell.font = font_section
+#     cell.fill = fill_gray_section
+#     cell.alignment = align_left
+#     ws.row_dimensions[9].height = 20
+
+#     headers = [
+#         "Origin (Build)", "Defect No.", "Defect Description", "Steps to Reproduce", "Expected Results",
+#         "Defect Attachment", "CR Reference", "Application / Module", "Defect Category", "Severity",
+#         "Priority", "Defect Status", "Detected By", "Date of Defect Origin", "Assigned To",
+#         "Expected Date of Closure", "Fixing Date", "Closed By", "Date of Closure",
+#         "SLA = (Date of Closure - Expected date of Closure)", "Comments"
+#     ]
+    
+#     ws.row_dimensions[10].height = 30
+#     for col_idx, h_text in enumerate(headers, 1):
+#         c = ws.cell(row=10, column=col_idx)
+#         c.value = h_text
+#         c.font = font_bold
+#         c.fill = fill_table_header
+#         c.alignment = align_center
+#         c.border = box_border
+
+#     curr_row = 11
+#     for idx, r in defect_df.iterrows():
+#         ws.row_dimensions[curr_row].height = 45
+#         row_data = [
+#             r.get('Origin (Build)', 'CRM V2'),
+#             r.get('TC ID', ''),
+#             r.get('Defect Description', r.get('Test Case Description', '')),
+#             r.get('Steps to Reproduce', r.get('Test Steps', '')),
+#             r.get('Expected Results', r.get('Expected Result', '')),
+#             r.get('Defect Attachment', safe_basename(r.get('Photo_Path', r.get('Receipt_Path', '')))),
+#             r.get('CR Reference', ''),
+#             r.get('Module Name', ''),
+#             r.get('Defect Category', r.get('Category', '')),
+#             r.get('Severity', 'Medium'),
+#             r.get('Priority', 'Medium'),
+#             r.get('Defect Status', 'Open'),
+#             r.get('Detected By', r.get('Executed By', '')),
+#             r.get('Date of Defect Origin', r.get('Executed Date', '')),
+#             r.get('Assigned To', 'Development Team'),
+#             r.get('Expected Date of Closure', r.get('Target Date', '')),
+#             r.get('Fixing Date', ''),
+#             r.get('Closed By', ''),
+#             r.get('Date of Closure', ''),
+#             r.get('SLA', ''),
+#             r.get('Comments', r.get('Remarks', ''))
+#         ]
+        
+#         for col_idx, val in enumerate(row_data, 1):
+#             c = ws.cell(row=curr_row, column=col_idx, value=val)
+#             c.font = font_regular
+#             c.border = box_border
+#             if col_idx in [1, 2, 10, 11, 12, 14, 16, 17, 18, 19, 20]:
+#                 c.alignment = align_center
+#             else:
+#                 c.alignment = align_left
+#         curr_row += 1
+
+#     for col in ws.columns:
+#         max_len = 0
+#         col_letter = get_column_letter(col[0].column)
+#         for cell in col:
+#             if cell.row > 4:
+#                 val_str = str(cell.value or '')
+#                 if len(val_str) > max_len:
+#                     max_len = len(val_str)
+#         ws.column_dimensions[col_letter].width = max(min(max_len + 3, 35), 12)
+
+#     wb.save(output)
+#     output.seek(0)
+#     return output
 
 # ---------------------------------------------------------
 # STYLING (CSS)
