@@ -7,11 +7,20 @@ import os
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+import psycopg2
 
+def get_db_connection():
+    try:
+        db_url = st.secrets["postgres"]["url"]
+        conn = psycopg2.connect(db_url)
+        return conn
+    except Exception as e:
+        st.error(f"PostgreSQL Connection Failed: {e}")
+        return None
 
 # Page Configuration
 st.set_page_config(
-    page_title="People's Bank | Hitachi CRM UAT Portal",
+    page_title="People's Bank | GRG CRM UAT Portal",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
