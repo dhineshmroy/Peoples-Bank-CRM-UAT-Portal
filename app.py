@@ -7,6 +7,17 @@ import os
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+import psycopg2
+
+def get_db_connection():
+    try:
+        # Pull the Supabase connection string from Streamlit Secrets
+        db_url = st.secrets["postgres"]["url"]
+        conn = psycopg2.connect(db_url)
+        return conn
+    except Exception as e:
+        st.error(f"PostgreSQL Database Connection Failed: {e}")
+        return None
 
 # Page Configuration
 st.set_page_config(
