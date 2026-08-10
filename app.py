@@ -1622,8 +1622,14 @@ elif menu == "🛠️ Defect Tracker":
                     if curr_sev not in sev_options: curr_sev = "Medium"
                     
                     pri_options = ["Low", "Moderate", "High"]
-                    curr_pri = row.get('Priority', 'Medium')
-                    if curr_pri not in pri_options: curr_pri = "Medium"
+                    curr_pri = str(row.get('Priority', 'Moderate')).strip()
+                    
+                    # Automatically map old "Medium" values to "Moderate" to prevent crashes
+                    if curr_pri in ["Medium", "medium"]:
+                        curr_pri = "Moderate"
+                        
+                    if curr_pri not in pri_options: 
+                        curr_pri = "Moderate"
                     
                     stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
                     curr_stat = row.get('Defect Status', 'Open')
