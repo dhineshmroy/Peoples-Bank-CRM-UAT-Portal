@@ -1883,12 +1883,22 @@ elif menu == "📄 Reports":
 
     st.write(f"📊 **Filtered Results Preview ({len(rep_df)} test cases match criteria):**")
     
-    preview_cols = ['TC ID', 'Category', 'Module Name', 'Test Case Description', 'Path Type', 'Status', 'Executed By', 'Executed Date', 'RRN', 'Utano']
-    preview_df = rep_df[preview_cols] if not rep_df.empty else pd.DataFrame(columns=preview_cols)
-    st.dataframe(preview_df, use_container_width=True, height=300, hide_index=True)
+    # Comprehensive columns list ensuring nothing gets cut off
+    comprehensive_cols = [
+        'TC ID', 'Category', 'Module Name', 'Test Area', 'Test Case Description', 
+        'Path Type', 'Pre-Conditions', 'Test Steps', 'Expected Result', 'Actual Result', 
+        'Status', 'Executed By', 'Executed Date', 'RRN', 'Utano', 'FE', 'SIBS', 'Remarks'
+    ]
+    
+    for col in comprehensive_cols:
+        if col not in rep_df.columns:
+            rep_df[col] = ""
+
+    preview_df = rep_df[comprehensive_cols] if not rep_df.empty else pd.DataFrame(columns=comprehensive_cols)
+    st.dataframe(preview_df, use_container_width=True, height=350, hide_index=True)
 
     st.write("")
-    report_output_df = rep_df[preview_cols] if not rep_df.empty else pd.DataFrame(columns=preview_cols)
+    report_output_df = rep_df[comprehensive_cols] if not rep_df.empty else pd.DataFrame(columns=comprehensive_cols)
     report_buf = generate_professional_report_excel(report_output_df, report_title="CUSTOMIZED UAT TEST EXECUTION REPORT")
     
     st.download_button(
