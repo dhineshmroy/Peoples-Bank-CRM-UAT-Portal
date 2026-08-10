@@ -348,92 +348,189 @@ def generate_official_defect_register_excel(defect_df):
     ws.views.sheetView[0].showGridLines = True
     font_family = "Calibri"
     
-    fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    fill_yellow_banner = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    # Fills & Styling
+    fill_yellow_banner = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    fill_yellow_cell = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     fill_gray_section = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-    fill_table_header = PatternFill(start_color="BFBFBF", end_color="BFBFBF", fill_type="solid")
+    fill_table_header = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
     
-    font_title = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+    font_title = Font(name=font_family, size=12, bold=True, color="000000")
     font_section = Font(name=font_family, size=10, bold=True, color="000000")
-    font_bold = Font(name=font_family, size=10, bold=True)
-    font_regular = Font(name=font_family, size=10)
+    font_bold = Font(name=font_family, size=10, bold=True, color="000000")
+    font_regular = Font(name=font_family, size=10, color="000000")
+    font_meta = Font(name=font_family, size=9, bold=True, color="000000")
     
     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     
-    thin_border_side = Side(border_style="thin", color="000000")
-    box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    thin_border = Side(border_style="thin", color="000000")
+    box_border = Border(left=thin_border, right=thin_border, top=thin_border, bottom=thin_border)
 
-    # Title block
-    ws.merge_cells('A1:U1')
-    cell = ws['A1']
+    # --- TOP METADATA ---
+    ws['P1'] = "IT-TMP-027-Defect Tracking Register Template"
+    ws['P1'].font = font_meta
+    ws['P2'] = "Version: 1.0"
+    ws['P2'].font = font_meta
+    ws['P3'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
+    ws['P3'].font = font_meta
+
+    # --- MAIN TITLE BANNER ---
+    ws.merge_cells('E2:K2')
+    cell = ws['E2']
     cell.value = "UAT DEFECT TRACKING REGISTER"
     cell.font = font_title
-    cell.fill = fill_dark_header
+    cell.fill = fill_yellow_banner
     cell.alignment = align_center
-    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 25
 
-    ws['R2'] = "Template: IT-IMP-025"
-    ws['R2'].font = font_regular
-    ws['R3'] = "Version: 1.0"
-    ws['R3'].font = font_regular
-    ws['R4'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
-    ws['R4'].font = font_regular
+    ws['L4'] = "For the period from"
+    ws['M4'] = datetime.today().strftime('%d/%m/%Y')
+    ws['O4'] = "to"
+    ws['P4'] = datetime.today().strftime('%d/%m/%Y')
 
-    # Project Info Section
-    ws.merge_cells('A5:U5')
-    cell = ws['A5']
-    cell.value = "PART I: PROJECT INFORMATION"
-    cell.font = font_section
-    cell.fill = fill_gray_section
-    cell.alignment = align_left
-    ws.row_dimensions[5].height = 20
+    # --- PART 1: PROJECT INFORMATION ---
+    ws.merge_cells('A6:S6')
+    sec_cell = ws['A6']
+    sec_cell.value = "PART 1: PROJECT INFORMATION"
+    sec_cell.font = font_section
+    sec_cell.fill = fill_gray_section
+    sec_cell.alignment = align_left
+    ws.row_dimensions[6].height = 20
 
-    ws['A6'] = "Project Name"
-    ws['A6'].font = font_bold
-    ws['A6'].fill = fill_yellow_banner
-    ws['A6'].border = box_border
+    # Row 7: Program Info
+    ws['A7'] = "Program Name"
+    ws['A7'].font = font_bold
+    ws['A7'].fill = fill_yellow_cell
+    ws['A7'].border = box_border
     
-    ws.merge_cells('C6:E6')
-    ws['C6'] = "People's Bank GRG CRM UAT"
-    ws['C6'].font = font_regular
-    ws['C6'].border = box_border
+    ws.merge_cells('B7:I7')
+    ws['B7'] = "GRG CRM Banking Solution"
+    ws['B7'].font = font_regular
+    ws['B7'].border = box_border
 
-    # Table Headers for Defects
+    ws['J7'] = "Program #"
+    ws['J7'].font = font_bold
+    ws['J7'].fill = fill_yellow_cell
+    ws['J7'].border = box_border
+    ws.merge_cells('K7:L7')
+    ws['K7'].border = box_border
+
+    ws['M7'] = "IT PM"
+    ws['M7'].font = font_bold
+    ws['M7'].fill = fill_yellow_cell
+    ws['M7'].border = box_border
+    ws.merge_cells('N7:S7')
+    ws['N7'].border = box_border
+
+    # Row 8: Project Name Info
+    ws['A8'] = "Project Name"
+    ws['A8'].font = font_bold
+    ws['A8'].fill = fill_yellow_cell
+    ws['A8'].border = box_border
+    
+    ws.merge_cells('B8:I8')
+    ws['B8'] = "People's Bank CRM Testing & Integration"
+    ws['B8'].font = font_regular
+    ws['B8'].border = box_border
+
+    ws['J8'] = "Project #"
+    ws['J8'].font = font_bold
+    ws['J8'].fill = fill_yellow_cell
+    ws['J8'].border = box_border
+    ws.merge_cells('K8:L8')
+    ws['K8'].border = box_border
+
+    ws['M8'] = "Business PM"
+    ws['M8'].font = font_bold
+    ws['M8'].fill = fill_yellow_cell
+    ws['M8'].border = box_border
+    ws.merge_cells('N8:S8')
+    ws['N8'].border = box_border
+
+    # Row 9: Sponsor Info
+    ws['A9'] = "Project Sponsor"
+    ws['A9'].font = font_bold
+    ws['A9'].fill = fill_yellow_cell
+    ws['A9'].border = box_border
+    
+    ws.merge_cells('B9:I9')
+    ws['B9'] = "People's Bank IT Department"
+    ws['B9'].font = font_regular
+    ws['B9'].border = box_border
+
+    ws['J9'] = "Project Manager"
+    ws['J9'].font = font_bold
+    ws['J9'].fill = fill_yellow_cell
+    ws['J9'].border = box_border
+    ws.merge_cells('K9:L9')
+    ws['K9'].border = box_border
+
+    ws['M9'] = "Project Start Date"
+    ws['M9'].font = font_bold
+    ws['M9'].fill = fill_yellow_cell
+    ws['M9'].border = box_border
+    ws.merge_cells('N9:S9')
+    ws['N9'].border = box_border
+
+    # --- PART 2: DEFECTS TABLE HEADERS ---
+    ws.merge_cells('A11:S11')
+    def_sec = ws['A11']
+    def_sec.value = "PART 2: DEFECTS"
+    def_sec.font = font_section
+    def_sec.fill = fill_gray_section
+    def_sec.alignment = align_left
+    ws.row_dimensions[11].height = 20
+
     headers = [
-        "TC ID", "Module Name", "Test Description", "Test Steps", "Expected Result", 
-        "Actual Result", "Executed By", "UTANO", "RRN", "FE", "SIBS", 
-        "Severity", "Priority", "Defect Status", "Assigned To", "Target Date", 
-        "Root Cause", "Defect Description", "Remarks"
+        "Origin (Build)", "Defect No.", "Defect Description", "Steps to Reproduce", 
+        "Expected Results", "Defect Attachment", "CR Reference", "Application / Module", 
+        "Defect Category", "Severity", "Priority", "Defect Status", "Detected By", 
+        "Date of Defect Origin", "Assigned To", "Expected Date of Closure", 
+        "Fixing Date", "Closed By", "Date of Closure", "SLA = (Date of Closure - Expected date of Closure)", "Comments"
     ]
     
-    ws.row_dimensions[9].height = 25
+    ws.row_dimensions[12].height = 30
     for col_idx, h_text in enumerate(headers, 1):
-        c = ws.cell(row=9, column=col_idx)
+        c = ws.cell(row=12, column=col_idx)
         c.value = h_text
         c.font = font_bold
         c.fill = fill_table_header
         c.alignment = align_center
         c.border = box_border
 
-    # Populate Data
-    curr_row = 10
+    # --- POPULATE DEFECT ROWS ---
+    curr_row = 13
     if not defect_df.empty:
         for _, r in defect_df.iterrows():
-            ws.row_dimensions[curr_row].height = 22
+            ws.row_dimensions[curr_row].height = 24
             row_data = [
-                r.get("TC ID", ""), r.get("Module Name", ""), r.get("Test Case Description", ""),
-                r.get("Test Steps", ""), r.get("Expected Result", ""), r.get("Actual Result", ""),
-                r.get("Executed By", ""), r.get("Utano", ""), r.get("RRN", ""), r.get("FE", ""),
-                r.get("SIBS", ""), r.get("Severity", ""), r.get("Priority", ""), r.get("Defect Status", ""),
-                r.get("Assigned To", ""), r.get("Target Date", ""), r.get("Root Cause", ""),
-                r.get("Defect Description", ""), r.get("Remarks", "")
+                r.get("Origin (Build)", "CRM V2"),
+                r.get("TC ID", ""),
+                r.get("Defect Description", r.get("Test Case Description", "")),
+                r.get("Test Steps", ""),
+                r.get("Expected Result", ""),
+                safe_basename(r.get("Photo_Path", r.get("Receipt_Path", ""))),
+                r.get("CR Reference", ""),
+                r.get("Module Name", ""),
+                r.get("Category", ""),
+                r.get("Severity", ""),
+                r.get("Priority", ""),
+                r.get("Defect Status", ""),
+                r.get("Detected By", r.get("Executed By", "")),
+                r.get("Date of Defect Origin", r.get("Executed Date", "")),
+                r.get("Assigned To", ""),
+                r.get("Target Date", ""),
+                r.get("Fixing Date", ""),
+                r.get("Closed By", ""),
+                r.get("Date of Closure", ""),
+                r.get("SLA", ""),
+                r.get("Comments", r.get("Remarks", ""))
             ]
             for col_idx, val in enumerate(row_data, 1):
                 c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
                 c.font = font_regular
                 c.border = box_border
-                c.alignment = align_left
+                c.alignment = align_left if col_idx in [3, 4, 5, 21] else align_center
             curr_row += 1
 
     wb.save(output)
