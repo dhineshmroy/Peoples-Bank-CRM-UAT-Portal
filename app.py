@@ -503,12 +503,26 @@ def generate_official_defect_register_excel(defect_df):
     if not defect_df.empty:
         for _, r in defect_df.iterrows():
             ws.row_dimensions[curr_row].height = 24
+            
+            # Robust fallbacks so fields never show up empty
+            desc_val = r.get("Defect Description", "")
+            if not desc_val or str(desc_val).strip() in ["", "nan", "None"]:
+                desc_val = r.get("Test Case Description", "Defect found during test execution")
+
+            steps_val = r.get("Test Steps", "")
+            if not steps_val or str(steps_val).strip() in ["", "nan", "None"]:
+                steps_val = r.get("Steps to Reproduce", "Refer to system test case specification")
+
+            exp_val = r.get("Expected Result", "")
+            if not exp_val or str(exp_val).strip() in ["", "nan", "None"]:
+                exp_val = r.get("Expected Results", "System should process successfully without errors")
+
             row_data = [
                 r.get("Origin (Build)", "CRM V2"),
                 r.get("TC ID", ""),
-                r.get("Defect Description", r.get("Test Case Description", "")),
-                r.get("Test Steps", ""),
-                r.get("Expected Result", ""),
+                desc_val,
+                steps_val,
+                exp_val,
                 safe_basename(r.get("Photo_Path", r.get("Receipt_Path", ""))),
                 r.get("CR Reference", ""),
                 r.get("Module Name", ""),
