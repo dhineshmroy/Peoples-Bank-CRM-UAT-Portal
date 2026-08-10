@@ -1527,10 +1527,50 @@ elif menu == "🛠️ Defect Tracker":
     else:
         defect_df = pd.DataFrame()
 
+    # --- DATE FILTER CONFIGURATION FOR DEFECTS ---
+    if not defect_df.empty:
+        st.markdown("#### 📅 Date Filter Configuration")
+        d_mode_col1, d_mode_col2 = st.columns(2)
+        with d_mode_col1:
+            enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
+        with d_mode_col2:
+            if enable_def_date_filter:
+                def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
+            else:
+                def_date_mode = None
+
+        def_date_range = None
+        specific_def_date = None
+
+        if enable_def_date_filter:
+            if def_date_mode == "Date Range":
+                def_date_range = st.date_input("Select Execution Date Range", value=(date.today(), date.today()), key="def_date_rng")
+            else:
+                specific_def_date = st.date_input("Select Specific Execution Date", value=date.today(), key="def_specific_date")
+
+        # Apply date filter if enabled
+        if enable_def_date_filter:
+            def parse_dt(val):
+                if not val or pd.isna(val): return None
+                try:
+                    return pd.to_datetime(val).date()
+                except Exception:
+                    return None
+            
+            exec_dates = defect_df['Executed Date'].apply(parse_dt)
+            
+            if def_date_mode == "Date Range" and isinstance(def_date_range, tuple) and len(def_date_range) == 2:
+                start_d, end_d = def_date_range
+                mask = exec_dates.apply(lambda d: d is not None and start_d <= d <= end_d)
+                defect_df = defect_df[mask]
+            elif def_date_mode == "Specific Date" and specific_def_date:
+                mask = exec_dates.apply(lambda d: d is not None and d == specific_def_date)
+                defect_df = defect_df[mask]
+
     if defect_df.empty:
-        st.success("🎉 No failed or blocked test cases logged.")
+        st.success("🎉 No failed test cases match your criteria.")
     else:
-        st.warning(f"⚠️ Total Active Defects / Failed Tests: {len(defect_df)}")
+        st.warning(f"⚠️ Total Active Defects / Failed Tests Matching Criteria: {len(defect_df)}")
         
         is_admin = (st.session_state.authenticated_role == "Admin / Manager")
         
@@ -1624,7 +1664,6 @@ elif menu == "🛠️ Defect Tracker":
                     pri_options = ["Low", "Moderate", "High"]
                     curr_pri = str(row.get('Priority', 'Moderate')).strip()
                     
-                    # Automatically map old "Medium" values to "Moderate" to prevent crashes
                     if curr_pri in ["Medium", "medium"]:
                         curr_pri = "Moderate"
                         
@@ -1658,7 +1697,7 @@ elif menu == "🛠️ Defect Tracker":
                     curr_root = row.get('Root Cause', '')
                     adm_root_cause = st.text_area("Root Cause / Developer Resolution Notes", value=curr_root, height=80, key=f"root_{d_key}")
 
-                    if st.button(f"💾 Save All Defect Changes to Oracle DB ({tc_id})", key=f"save_def_{d_key}", use_container_width=True):
+                    if st.button(f"💾 Save All Defect Changes to Database ({tc_id})", key=f"save_def_{d_key}", use_container_width=True):
                         admin_update_full_defect_details(
                             tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
                             fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
