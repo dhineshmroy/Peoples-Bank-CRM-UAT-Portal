@@ -1262,7 +1262,7 @@ if menu == "📊 Live Dashboard":
     total = len(df)
     passed = len(df[df['Status'] == 'PASS']) if not df.empty and 'Status' in df.columns else 0
     failed = len(df[df['Status'] == 'FAIL']) if not df.empty and 'Status' in df.columns else 0
-    blocked = len(df[df['Status'] == 'BLOCKED']) if not df.empty and 'Status' in df.columns else 0
+    NA = len(df[df['Status'] == 'N/A']) if not df.empty and 'Status' in df.columns else 0
     pending = len(df[df['Status'] == 'PENDING']) if not df.empty and 'Status' in df.columns else 0
     pass_pct = round((passed / total * 100), 1) if total > 0 else 0
 
@@ -1270,7 +1270,7 @@ if menu == "📊 Live Dashboard":
     m1.markdown(f'<div class="metric-card"><div class="metric-num">{total}</div><div class="metric-label">Total Cases</div></div>', unsafe_allow_html=True)
     m2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{passed}</div><div class="metric-label">Passed ({pass_pct}%)</div></div>', unsafe_allow_html=True)
     m3.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #dc2626;">{failed}</div><div class="metric-label">Failed</div></div>', unsafe_allow_html=True)
-    m4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{blocked}</div><div class="metric-label">Blocked</div></div>', unsafe_allow_html=True)
+    m4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{NA}</div><div class="metric-label">Not Applicable</div></div>', unsafe_allow_html=True)
     m5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{pending}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
 
     st.write("")
@@ -1287,7 +1287,7 @@ if menu == "📊 Live Dashboard":
     with f3:
         sel_paths = st.multiselect("Path Types", ["Positive", "Negative"], default=["Positive", "Negative"], key="dash_paths")
     with f4:
-        sel_statuses = st.multiselect("Statuses", ["PASS", "FAIL", "BLOCKED", "PENDING"], default=["PASS", "FAIL", "BLOCKED", "PENDING"], key="dash_statuses")
+        sel_statuses = st.multiselect("Statuses", ["PASS", "FAIL", "N/A", "PENDING"], default=["PASS", "FAIL", "N/A", "PENDING"], key="dash_statuses")
     with f5:
         search_kw = st.text_input("Search ID / Desc / Utano / RRN", placeholder="e.g. CD-01 or Utano/RRN")
 
@@ -1371,7 +1371,7 @@ elif menu == "🧪 Test Execution & Scenarios":
             f_mod = st.selectbox("Select Module / Sheet", modules)
             mod_df = cat_df[cat_df['Module Name'] == f_mod] if not cat_df.empty else pd.DataFrame()
         with col_sel3:
-            exec_status_filter = st.selectbox("Filter by Status", ["All", "PENDING", "PASS", "FAIL", "BLOCKED"])
+            exec_status_filter = st.selectbox("Filter by Status", ["All", "PENDING", "PASS", "FAIL", "N/A"])
         
         if exec_status_filter != "All" and not mod_df.empty:
             # Normalize status to safely treat empty/null values as PENDING and match case-insensitively
@@ -1398,7 +1398,7 @@ elif menu == "🧪 Test Execution & Scenarios":
 
         for idx, row in mod_df.iterrows():
             status_val = str(row.get('Status', 'PENDING')).upper().strip()
-            badge = "🟢" if status_val == 'PASS' else ("🔴" if status_val == 'FAIL' else ("🟡" if status_val == 'BLOCKED' else "🔵"))
+            badge = "🟢" if status_val == 'PASS' else ("🔴" if status_val == 'FAIL' else ("🟡" if status_val == 'N/A' else "🔵"))
             
             with st.expander(f"{badge} [{row.get('Status', 'PENDING')}] {row['TC ID']} — {row['Test Case Description']}"):
                 st.markdown(f"**Test Area:** `{row['Test Area']}`")
@@ -1428,7 +1428,7 @@ elif menu == "🧪 Test Execution & Scenarios":
                 with col_left:
                     st.markdown("#### 📝 Status & Transaction Details")
                     
-                    status_opt = ["PENDING", "PASS", "FAIL", "BLOCKED"]
+                    status_opt = ["PENDING", "PASS", "FAIL", "N/A"]
                     st_curr = row.get('Status', 'PENDING')
                     if st_curr not in status_opt:
                         st_curr = "PENDING"
@@ -1522,7 +1522,7 @@ elif menu == "🛠️ Defect Tracker":
     st.subheader("🛠️ Centralized Defect Tracker Report")
     
     if not df.empty and 'Status' in df.columns:
-        defect_df = df[df['Status'].isin(['FAIL', 'BLOCKED'])].copy()
+        defect_df = df[df['Status'].isin(['FAIL', 'N/A'])].copy()
     else:
         defect_df = pd.DataFrame()
 
@@ -1816,7 +1816,7 @@ elif menu == "📄 Reports":
 
     col_f4, col_f5 = st.columns(2)
     with col_f4:
-        rep_statuses = st.multiselect("Select Statuses", ["PASS", "FAIL", "BLOCKED", "PENDING"], default=["PASS", "FAIL", "BLOCKED", "PENDING"], key="rep_statuses")
+        rep_statuses = st.multiselect("Select Statuses", ["PASS", "FAIL", "N/A", "PENDING"], default=["PASS", "FAIL", "N/A", "PENDING"], key="rep_statuses")
     with col_f5:
         rep_testers = st.multiselect("Select Testers (Executed By)", all_testers, default=all_testers, key="rep_testers")
 
