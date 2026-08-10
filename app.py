@@ -1718,23 +1718,22 @@ elif menu == "⚙️ Admin Management":
                 "Credit_Card_Positive_Scenario", "Credit_Card_Negative_Scenario"
             ]
             
+            # --- OUTSIDE FORM: Dynamic Module Selector (Updates instantly) ---
+            mod_choice_type = st.radio("Module Input Mode", ["Select Existing Module", "Type Custom Module"], key="mod_mode_radio", horizontal=True)
+            
+            if mod_choice_type == "Select Existing Module":
+                new_module = st.selectbox("Select Module Name", existing_modules, key="sel_existing_mod")
+            else:
+                custom_mod_input = st.text_input("Type Custom Module Name (Exact match)", placeholder="e.g., Other Bank Cards", key="txt_custom_mod")
+                new_module = custom_mod_input.strip()
+
+            st.divider()
+
+            # --- INSIDE FORM: Test Case Details ---
             with st.form("new_test_case_form"):
                 col_n1, col_n2, col_n3 = st.columns(3)
                 with col_n1:
                     new_tc_id = st.text_input("Test Case ID (e.g., TC_CB_CR_P_01_005)")
-                    
-                    # Module selection: Use a selectbox that includes an option to add new, 
-                    # OR a text input that appears right below it.
-                    mod_choice_type = st.radio("Module Input Mode", ["Select Existing Module", "Type Custom Module"], key="mod_mode_radio")
-                    
-                    # Always render both fields conditionally using unique keys or separate variables
-                    new_module = ""
-                    if mod_choice_type == "Select Existing Module":
-                        new_module = st.selectbox("Select Module Name", existing_modules, key="sel_existing_mod")
-                    else:
-                        custom_mod_input = st.text_input("Type Custom Module Name (Exact match)", placeholder="e.g., Other Bank Cards", key="txt_custom_mod")
-                        new_module = custom_mod_input.strip()
-                        
                 with col_n2:
                     new_category = st.selectbox("Category", ["Card Based", "Cardless", "Other Bank Cards"])
                     new_path_type = st.selectbox("Path Type", ["Positive", "Negative", "Edge Case"])
