@@ -1621,7 +1621,7 @@ elif menu == "🛠️ Defect Tracker":
                     curr_sev = row.get('Severity', 'Medium')
                     if curr_sev not in sev_options: curr_sev = "Medium"
                     
-                    pri_options = ["Low", "Medium", "High"]
+                    pri_options = ["Low", "Moderate", "High"]
                     curr_pri = row.get('Priority', 'Medium')
                     if curr_pri not in pri_options: curr_pri = "Medium"
                     
