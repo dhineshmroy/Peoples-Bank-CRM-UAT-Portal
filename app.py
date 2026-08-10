@@ -1714,7 +1714,7 @@ elif menu == "⚙️ Admin Management":
             
             # Fetch existing unique modules from current data for the dropdown
             existing_modules = list(df['Module Name'].unique()) if not df.empty and 'Module Name' in df.columns else [
-                "Card_Based_Cash Deposit-Positiv", "CardBased Cash Deposit-Negative", 
+                "Card_Based_Cash Deposit-Positive", "CardBased Cash Deposit-Negative", 
                 "Credit_Card_Positive_Scenario", "Credit_Card_Negative_Scenario"
             ]
             
@@ -1723,16 +1723,17 @@ elif menu == "⚙️ Admin Management":
                 with col_n1:
                     new_tc_id = st.text_input("Test Case ID (e.g., TC_CB_CR_P_01_005)")
                     
-                    # Module selection: Dropdown to prevent typing errors, with fallback option
+                    # Module selection: Dropdown with option to type custom module
                     mod_choice_type = st.radio("Module Input Mode", ["Select Existing Module", "Type Custom Module"])
                     if mod_choice_type == "Select Existing Module":
                         new_module = st.selectbox("Select Module Name", existing_modules)
                     else:
-                        new_module = st.text_input("Enter New Module Name (Exact match)")
+                        custom_mod_input = st.text_input("Enter New Module Name (Exact match)")
+                        new_module = custom_mod_input.strip() if custom_mod_input else ""
                         
                 with col_n2:
-                    new_category = st.selectbox("Category", ["Card Based", "Cardless"])
-                    new_path_type = st.selectbox("Path Type", ["Positive", "Negative"])
+                    new_category = st.selectbox("Category", ["Card Based", "Cardless", "Other Bank Cards"])
+                    new_path_type = st.selectbox("Path Type", ["Positive", "Negative", "Edge Case"])
                 with col_n3:
                     new_test_area = st.text_input("Test Area (e.g., Credit Card Limit)")
                     
@@ -1741,7 +1742,7 @@ elif menu == "⚙️ Admin Management":
                 new_test_steps = st.text_area("Test Steps (Numbered list)", height=100)
                 new_exp_result = st.text_area("Expected Result", height=80)
                 
-                submitted = st.form_submit_button("🚀 Insert New Test Case to Oracle DB", use_container_width=True)
+                submitted = st.form_submit_button("🚀 Insert New Test Case to Database", use_container_width=True)
                 if submitted:
                     if not new_tc_id or not new_module or not new_test_desc:
                         st.error("Please fill in at least Test Case ID, Module Name, and Description.")
@@ -1793,7 +1794,7 @@ elif menu == "⚙️ Admin Management":
                                     st.rerun()
 
     st.divider()
-    st.info("To reload or refresh test cases from your Excel files, run `python import_excel_to_oracle.py` in your terminal.")
+    st.info("To reload or refresh test cases from your master files, use the administrative database tools configured for your Supabase project.")
 
 # ---------------------------------------------------------
 # 5. REPORTS
