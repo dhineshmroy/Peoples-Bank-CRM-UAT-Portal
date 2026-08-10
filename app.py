@@ -1522,7 +1522,8 @@ elif menu == "🛠️ Defect Tracker":
     st.subheader("🛠️ Centralized Defect Tracker Report")
     
     if not df.empty and 'Status' in df.columns:
-        defect_df = df[df['Status'].isin(['FAIL', 'N/A'])].copy()
+        # Only include FAIL (exclude BLOCKED and N/A)
+        defect_df = df[df['Status'] == 'FAIL'].copy()
     else:
         defect_df = pd.DataFrame()
 
