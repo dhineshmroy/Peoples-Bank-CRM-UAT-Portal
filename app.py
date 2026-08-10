@@ -1406,23 +1406,22 @@ elif menu == "🧪 Test Execution & Scenarios":
     else:
         col_sel1, col_sel2, col_sel3 = st.columns(3)
         with col_sel1:
-            f_cat = st.selectbox("Select Category", categories)
+            f_cat = st.selectbox("Select Category", categories, key="exec_cat_sel")
             cat_df = df[df['Category'] == f_cat] if not df.empty else pd.DataFrame()
         with col_sel2:
             modules = list(cat_df['Module Name'].unique()) if not cat_df.empty and 'Module Name' in cat_df.columns else []
-            f_mod = st.selectbox("Select Module / Sheet", modules)
+            f_mod = st.selectbox("Select Module / Sheet", modules, key="exec_mod_sel")
             mod_df = cat_df[cat_df['Module Name'] == f_mod] if not cat_df.empty else pd.DataFrame()
         with col_sel3:
-            exec_status_filter = st.selectbox("Filter by Status", ["All", "PENDING", "PASS", "FAIL", "N/A"])
+            exec_status_filter = st.selectbox("Filter by Status", ["All", "PENDING", "PASS", "FAIL", "N/A"], key="exec_stat_filt")
         
         if exec_status_filter != "All" and not mod_df.empty:
-            # Normalize status to safely treat empty/null values as PENDING and match case-insensitively
             mod_df['Normalized_Status'] = mod_df['Status'].apply(
                 lambda s: str(s).upper().strip() if str(s).strip() and str(s).lower() not in ['nan', 'none', ''] else 'PENDING'
             )
             mod_df = mod_df[mod_df['Normalized_Status'] == exec_status_filter]
 
-        exec_search_kw = st.text_input("🔍 Search within Module (by ID, Desc, Tester, Utano, or RRN)", placeholder="e.g. CD-01, John, Utano, etc.")
+        exec_search_kw = st.text_input("🔍 Search within Module (by ID, Desc, Tester, Utano, or RRN)", placeholder="e.g. CD-01, John, Utano, etc.", key="exec_search_input")
         if exec_search_kw and not mod_df.empty:
             mod_df = mod_df[
                 mod_df['TC ID'].str.contains(exec_search_kw, case=False, na=False) | 
@@ -1461,100 +1460,129 @@ elif menu == "🧪 Test Execution & Scenarios":
                 
                 st.divider()
 
-                unique_suffix = f"{row['Module Name']}_{row['TC ID']}_{idx}"
+                unique_suffix = f"{row['Module Name']}_{row['TC ID']}_{idx}".replace(" ", "_")
 
                 st.markdown('<div class="execution-card">', unsafe_allow_html=True)
                 
-                col_left, col_right = st.columns(2, gap="large")
-                
-                with col_left:
-                    st.markdown("#### 📝 Status & Transaction Details")
+                # Wrap execution inputs inside a native st.form to completely eliminate unwanted reruns on file uploads
+                with st.form(key=f"exec_form_{unique_suffix}"):
+                    col_left, col_right = st.columns(2, gap="large")
                     
-                    status_opt = ["PENDING", "PASS", "FAIL", "N/A"]
-                    st_curr = row.get('Status', 'PENDING')
-                    if st_curr not in status_opt:
-                        st_curr = "PENDING"
-                    new_status = st.selectbox("Execution Status", status_opt, index=status_opt.index(st_curr), key=f"st_{unique_suffix}", disabled=not can_execute)
-                    
-                    exec_val = "" if str(row.get('Executed By')) in ["nan", "None", ""] else row['Executed By']
-                    tester_name = st.text_input("Executed By (Tester)", value=exec_val, key=f"ex_{unique_suffix}", disabled=not can_execute)
-                    
-                    existing_date_str = str(row.get('Executed Date', ''))
-                    try:
-                        default_exec_date = datetime.strptime(existing_date_str.split()[0], "%Y-%m-%d").date() if existing_date_str else date.today()
-                    except Exception:
-                        default_exec_date = date.today()
-                    
-                    selected_exec_date = st.date_input("Execution Date", value=default_exec_date, key=f"date_{unique_suffix}", disabled=not can_execute)
-                    
-                    uano_val = "" if str(row.get('Utano')) in ["nan", "None", ""] else row['Utano']
-                    new_utano = st.text_input("UTANO (from bill)", value=uano_val, key=f"utano_{unique_suffix}", disabled=not can_execute)
-                    
-                    calc_rrn = derive_rrn(new_utano)
-                    st.markdown(f"""
-                        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 15px;">
-                            <span style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Auto-Calculated RRN:</span><br>
-                            <div class="rrn-badge">{calc_rrn}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    fe_val = "" if str(row.get('FE')) in ["nan", "None", ""] else row['FE']
-                    new_fe = st.text_input("FE", value=fe_val, key=f"fe_{unique_suffix}", disabled=not can_execute)
-                    
-                    sibs_val = "" if str(row.get('SIBS')) in ["nan", "None", ""] else row['SIBS']
-                    new_sibs = st.text_input("SIBS", value=sibs_val, key=f"sibs_{unique_suffix}", disabled=not can_execute)
+                    with col_left:
+                        st.markdown("#### 📝 Status & Transaction Details")
+                        
+                        status_opt = ["PENDING", "PASS", "FAIL", "N/A"]
+                        st_curr = row.get('Status', 'PENDING')
+                        if st_curr not in status_opt:
+                            st_curr = "PENDING"
+                        new_status = st.selectbox("Execution Status", status_opt, index=status_opt.index(st_curr), key=f"st_{unique_suffix}", disabled=not can_execute)
+                        
+                        exec_val = "" if str(row.get('Executed By')) in ["nan", "None", ""] else row['Executed By']
+                        tester_name = st.text_input("Executed By (Tester)", value=exec_val, key=f"ex_{unique_suffix}", disabled=not can_execute)
+                        
+                        existing_date_str = str(row.get('Executed Date', ''))
+                        try:
+                            default_exec_date = datetime.strptime(existing_date_str.split()[0], "%Y-%m-%d").date() if existing_date_str else date.today()
+                        except Exception:
+                            default_exec_date = date.today()
+                        
+                        selected_exec_date = st.date_input("Execution Date", value=default_exec_date, key=f"date_{unique_suffix}", disabled=not can_execute)
+                        
+                        uano_val = "" if str(row.get('Utano')) in ["nan", "None", ""] else row['Utano']
+                        new_utano = st.text_input("UTANO (from bill)", value=uano_val, key=f"utano_{unique_suffix}", disabled=not can_execute)
+                        
+                        calc_rrn = derive_rrn(new_utano)
+                        st.markdown(f"""
+                            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 15px;">
+                                <span style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Auto-Calculated RRN:</span><br>
+                                <div class="rrn-badge">{calc_rrn}</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        fe_val = "" if str(row.get('FE')) in ["nan", "None", ""] else row['FE']
+                        new_fe = st.text_input("FE", value=fe_val, key=f"fe_{unique_suffix}", disabled=not can_execute)
+                        
+                        sibs_val = "" if str(row.get('SIBS')) in ["nan", "None", ""] else row['SIBS']
+                        new_sibs = st.text_input("SIBS", value=sibs_val, key=f"sibs_{unique_suffix}", disabled=not can_execute)
 
-                with col_right:
-                    st.markdown("#### 📋 Results & Attachments")
-                    
-                    act_val = "" if str(row.get('Actual Result')) in ["nan", "None", ""] else row['Actual Result']
-                    act_res = st.text_area("Actual Result", value=act_val, height=105, key=f"act_{unique_suffix}", disabled=not can_execute)
-                    
-                    rem_val = "" if str(row.get('Remarks')) in ["nan", "None", ""] else row['Remarks']
-                    remarks = st.text_input("Remarks", value=rem_val, key=f"rem_{unique_suffix}", disabled=not can_execute)
-                    
+                    with col_right:
+                        st.markdown("#### 📋 Results & Attachments")
+                        
+                        act_val = "" if str(row.get('Actual Result')) in ["nan", "None", ""] else row['Actual Result']
+                        act_res = st.text_area("Actual Result", value=act_val, height=105, key=f"act_{unique_suffix}", disabled=not can_execute)
+                        
+                        rem_val = "" if str(row.get('Remarks')) in ["nan", "None", ""] else row['Remarks']
+                        remarks = st.text_input("Remarks", value=rem_val, key=f"rem_{unique_suffix}", disabled=not can_execute)
+                        
+                        st.write("")
+                        rc_col, ph_col = st.columns(2)
+                        with rc_col:
+                            receipt_file = st.file_uploader(
+                                "Receipt (.jpg/.pdf)", 
+                                type=["jpg", "png", "jpeg", "pdf"], 
+                                key=f"rec_{unique_suffix}", 
+                                disabled=not can_execute
+                            )
+                            r_path_str = safe_basename(row.get('Receipt_Path'))
+                            if r_path_str:
+                                st.caption(f"📎 `{r_path_str}`")
+                                
+                        with ph_col:
+                            photo_file = st.file_uploader(
+                                "Error Photo (.jpg)", 
+                                type=["jpg", "png", "jpeg"], 
+                                key=f"pho_{unique_suffix}", 
+                                disabled=not can_execute
+                            )
+                            p_path_str = safe_basename(row.get('Photo_Path'))
+                            if p_path_str:
+                                st.caption(f"📷 `{p_path_str}`")
+
+                    st.divider()
+                    st.markdown("#### 🐞 Defect Description")
+                    def_desc_val = row.get('Defect Description', '')
+                    new_def_desc = st.text_area(
+                        "Enter Defect Description (if any defect occurred during testing):", 
+                        value=def_desc_val, 
+                        height=80, 
+                        key=f"def_desc_{unique_suffix}", 
+                        disabled=not can_execute
+                    )
+
                     st.write("")
-                    rc_col, ph_col = st.columns(2)
-                    with rc_col:
-                        receipt_file = st.file_uploader("Receipt (.jpg/.pdf)", type=["jpg", "png", "jpeg", "pdf"], key=f"rec_{unique_suffix}", disabled=not can_execute)
-                        r_path_str = safe_basename(row.get('Receipt_Path'))
-                        if r_path_str:
-                            st.caption(f"📎 `{r_path_str}`")
-                    with ph_col:
-                        photo_file = st.file_uploader("Error Photo (.jpg)", type=["jpg", "png", "jpeg"], key=f"pho_{unique_suffix}", disabled=not can_execute)
-                        p_path_str = safe_basename(row.get('Photo_Path'))
-                        if p_path_str:
-                            st.caption(f"📷 `{p_path_str}`")
-
-                st.divider()
-                st.markdown("#### 🐞 Defect Description")
-                def_desc_val = row.get('Defect Description', '')
-                new_def_desc = st.text_area("Enter Defect Description (if any defect occurred during testing):", value=def_desc_val, height=80, key=f"def_desc_{unique_suffix}", disabled=not can_execute)
-
-                st.write("")
-                if can_execute:
-                    if st.button(f"💾 Save & Sync to Oracle DB ({row['TC ID']})", key=f"save_{unique_suffix}", use_container_width=True):
+                    submitted = st.form_submit_button(f"💾 Save & Sync to Database ({row['TC ID']})", use_container_width=True, disabled=not can_execute)
+                    
+                    if submitted:
+                        # --- FILE UPLOAD PROCESSING LOGIC ---
                         rec_path = row.get('Receipt_Path', '')
-                        if receipt_file:
-                            rec_path = os.path.join(UPLOAD_DIR, "receipts", f"{row['TC ID']}_{receipt_file.name}")
-                            with open(rec_path, "wb") as f:
-                                f.write(receipt_file.getbuffer())
+                        if receipt_file is not None:
+                            rec_path = safe_basename(receipt_file.name)
 
                         pho_path = row.get('Photo_Path', '')
-                        if photo_file:
-                            pho_path = os.path.join(UPLOAD_DIR, "photos", f"{row['TC ID']}_{photo_file.name}")
-                            with open(pho_path, "wb") as f:
-                                f.write(photo_file.getbuffer())
+                        if photo_file is not None:
+                            pho_path = safe_basename(photo_file.name)
 
                         exec_date_str = selected_exec_date.strftime("%Y-%m-%d %H:%M:%S")
 
+                        # Save cleanly to PostgreSQL / Supabase
                         save_test_case_to_db(
-                            row['TC ID'], row['Module Name'], new_status, act_res, new_fe, new_sibs, 
-                            new_utano, remarks, tester_name, exec_date_str, rec_path, pho_path,
+                            tc_id=row['TC ID'], 
+                            module_name=row['Module Name'], 
+                            status=new_status, 
+                            actual_result=act_res, 
+                            fe=new_fe, 
+                            sibs=new_sibs, 
+                            utano=new_utano, 
+                            remarks=remarks, 
+                            executed_by=tester_name, 
+                            executed_date=exec_date_str, 
+                            receipt_path=rec_path, 
+                            photo_path=pho_path,
                             defect_desc=new_def_desc
                         )
-                        st.success(f"Successfully updated test case {row['TC ID']} in Oracle DB and synced to Defect Tracker!")
+                        st.success(f"Successfully updated test case {row['TC ID']} in database and synced to Defect Tracker!")
                         st.rerun()
+                        
                 st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
