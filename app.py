@@ -1516,27 +1516,45 @@ elif menu == "🧪 Test Execution & Scenarios":
                         
                         st.write("")
                         rc_col, ph_col = st.columns(2)
+                        
+                        # --- RECEIPT UPLOAD & PREVIEW ---
                         with rc_col:
+                            st.markdown("**Receipt (.jpg/.pdf)**")
                             receipt_file = st.file_uploader(
-                                "Receipt (.jpg/.pdf)", 
+                                "Upload Receipt", 
                                 type=["jpg", "png", "jpeg", "pdf"], 
                                 key=f"rec_{unique_suffix}", 
-                                disabled=not can_execute
+                                disabled=not can_execute,
+                                label_visibility="collapsed"
                             )
-                            r_path_str = safe_basename(row.get('Receipt_Path'))
-                            if r_path_str:
-                                st.caption(f"📎 `{r_path_str}`")
+                            
+                            existing_receipt = row.get('Receipt_Path', '')
+                            if existing_receipt and os.path.exists(str(existing_receipt)):
+                                st.caption(f"📎 Current: `{safe_basename(existing_receipt)}`")
+                                if str(existing_receipt).lower().endswith(('.jpg', '.jpeg', '.png')):
+                                    st.image(existing_receipt, width=150, caption="Receipt Preview")
                                 
+                                if can_execute and st.checkbox("🗑️ Remove Receipt", key=f"rm_rec_{unique_suffix}"):
+                                    existing_receipt = "REMOVE" # Flag for removal
+
+                        # --- ERROR PHOTO UPLOAD & PREVIEW ---
                         with ph_col:
+                            st.markdown("**Error Photo (.jpg)**")
                             photo_file = st.file_uploader(
-                                "Error Photo (.jpg)", 
+                                "Upload Error Photo", 
                                 type=["jpg", "png", "jpeg"], 
                                 key=f"pho_{unique_suffix}", 
-                                disabled=not can_execute
+                                disabled=not can_execute,
+                                label_visibility="collapsed"
                             )
-                            p_path_str = safe_basename(row.get('Photo_Path'))
-                            if p_path_str:
-                                st.caption(f"📷 `{p_path_str}`")
+                            
+                            existing_photo = row.get('Photo_Path', '')
+                            if existing_photo and os.path.exists(str(existing_photo)):
+                                st.caption(f"📷 Current: `{safe_basename(existing_photo)}`")
+                                st.image(existing_photo, width=150, caption="Error Photo Preview")
+                                
+                                if can_execute and st.checkbox("🗑️ Remove Photo", key=f"rm_pho_{unique_suffix}"):
+                                    existing_photo = "REMOVE" # Flag for removal
 
                     st.divider()
                     st.markdown("#### 🐞 Defect Description")
@@ -1553,18 +1571,26 @@ elif menu == "🧪 Test Execution & Scenarios":
                     submitted = st.form_submit_button(f"💾 Save & Sync to Database ({row['TC ID']})", use_container_width=True, disabled=not can_execute)
                     
                     if submitted:
-                        # --- FILE UPLOAD PROCESSING LOGIC ---
+                        # Handle Receipt Path saving/removal
                         rec_path = row.get('Receipt_Path', '')
+                        if locals().get('existing_receipt') == "REMOVE":
+                            rec_path = ""
                         if receipt_file is not None:
-                            rec_path = safe_basename(receipt_file.name)
+                            rec_path = os.path.join(UPLOAD_DIR, "receipts", f"{row['TC ID']}_{receipt_file.name}")
+                            with open(rec_path, "wb") as f:
+                                f.write(receipt_file.getbuffer())
 
+                        # Handle Photo Path saving/removal
                         pho_path = row.get('Photo_Path', '')
+                        if locals().get('existing_photo') == "REMOVE":
+                            pho_path = ""
                         if photo_file is not None:
-                            pho_path = safe_basename(photo_file.name)
+                            pho_path = os.path.join(UPLOAD_DIR, "photos", f"{row['TC ID']}_{photo_file.name}")
+                            with open(pho_path, "wb") as f:
+                                f.write(photo_file.getbuffer())
 
                         exec_date_str = selected_exec_date.strftime("%Y-%m-%d %H:%M:%S")
 
-                        # Save cleanly to PostgreSQL / Supabase
                         save_test_case_to_db(
                             tc_id=row['TC ID'], 
                             module_name=row['Module Name'], 
@@ -1580,7 +1606,7 @@ elif menu == "🧪 Test Execution & Scenarios":
                             photo_path=pho_path,
                             defect_desc=new_def_desc
                         )
-                        st.success(f"Successfully updated test case {row['TC ID']} in database and synced to Defect Tracker!")
+                        st.success(f"Successfully updated test case {row['TC ID']} in database!")
                         st.rerun()
                         
                 st.markdown('</div>', unsafe_allow_html=True)
