@@ -1877,6 +1877,34 @@ elif menu == "⚙️ Admin Management":
                                     st.success(f"Successfully deleted test case {tc_id_val}!")
                                     st.rerun()
 
+            st.divider()
+            st.markdown("### 🗑️ Delete Entire Module & All Its Test Cases")
+            st.markdown("If a custom module was added by mistake, you can wipe the entire module and its associated test cases from the database here:")
+            
+            all_existing_modules = list(df['Module Name'].dropna().unique()) if not df.empty and 'Module Name' in df.columns else []
+            
+            if all_existing_modules:
+                mod_to_delete = st.selectbox("Select Module Name to Delete", all_existing_modules, key="select_mod_to_del")
+                
+                # Confirmation checkbox to prevent accidental deletions
+                confirm_mod_del = st.checkbox(f"⚠️ Yes, I want to permanently delete module '{mod_to_delete}' and all test cases under it.", key="chk_confirm_mod_del")
+                
+                if st.button("🗑️ Delete Entire Module", type="primary", key="btn_del_entire_mod", use_container_width=True):
+                    if not confirm_mod_del:
+                        st.error("Please check the confirmation box above before deleting a module.")
+                    else:
+                        # Filter rows belonging to this module and delete them one by one or via bulk handler
+                        module_rows = df[df['Module Name'] == mod_to_delete]
+                        success_count = 0
+                        for _, m_row in module_rows.iterrows():
+                            if delete_test_case_from_db(m_row['TC ID'], m_row['Module Name']):
+                                success_count += 1
+                        
+                        st.success(f"Successfully deleted module '{mod_to_delete}' along with {success_count} associated test case(s)!")
+                        st.rerun()
+            else:
+                st.info("No modules available for deletion.")
+
     st.divider()
     st.info("To reload or refresh test cases from your master files, use the administrative database tools configured for your Supabase project.")
 
