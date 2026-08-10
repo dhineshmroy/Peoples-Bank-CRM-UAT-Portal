@@ -345,62 +345,77 @@ def generate_official_defect_register_excel(defect_df):
     ws = wb.active
     ws.title = "Defect Tracking Register"
     
+    # Ensure grid lines are visible
     ws.views.sheetView[0].showGridLines = True
     font_family = "Calibri"
     
-    # Fills & Styling
-    fill_yellow_banner = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-    fill_yellow_cell = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-    fill_gray_section = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-    fill_table_header = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    # --- Professional Palette (People's Bank Corporate Theme) ---
+    fill_main_banner = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")  # Deep Navy Blue
+    fill_section_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid") # Soft Ice Blue
+    fill_label_cell = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")     # Light Warm Gray
+    fill_table_header = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")   # Professional Table Blue
+    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")         # Very soft tint for zebra striping
     
-    font_title = Font(name=font_family, size=12, bold=True, color="000000")
-    font_section = Font(name=font_family, size=10, bold=True, color="000000")
+    # Fonts
+    font_banner_title = Font(name=font_family, size=13, bold=True, color="FFFFFF")
+    font_section = Font(name=font_family, size=10, bold=True, color="1F4E78")
     font_bold = Font(name=font_family, size=10, bold=True, color="000000")
     font_regular = Font(name=font_family, size=10, color="000000")
-    font_meta = Font(name=font_family, size=9, bold=True, color="000000")
+    font_table_hdr = Font(name=font_family, size=10, bold=True, color="FFFFFF")
+    font_meta = Font(name=font_family, size=9, bold=True, color="595959")
     
+    # Alignments & Borders
     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    align_right = Alignment(horizontal="right", vertical="center", wrap_text=True)
     
-    thin_border = Side(border_style="thin", color="000000")
-    box_border = Border(left=thin_border, right=thin_border, top=thin_border, bottom=thin_border)
+    thin_border_side = Side(border_style="thin", color="BFBFBF")
+    box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    
+    thick_bottom = Border(bottom=Side(border_style="medium", color="1F4E78"))
 
     # --- TOP METADATA ---
     ws['P1'] = "IT-TMP-027-Defect Tracking Register Template"
     ws['P1'].font = font_meta
+    ws['P1'].alignment = align_right
     ws['P2'] = "Version: 1.0"
     ws['P2'].font = font_meta
+    ws['P2'].alignment = align_right
     ws['P3'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
     ws['P3'].font = font_meta
+    ws['P3'].alignment = align_right
 
     # --- MAIN TITLE BANNER ---
     ws.merge_cells('E2:K2')
     cell = ws['E2']
     cell.value = "UAT DEFECT TRACKING REGISTER"
-    cell.font = font_title
-    cell.fill = fill_yellow_banner
+    cell.font = font_banner_title
+    cell.fill = fill_main_banner
     cell.alignment = align_center
-    ws.row_dimensions[2].height = 25
+    ws.row_dimensions[2].height = 28
 
-    ws['L4'] = "For the period from"
+    ws['L4'] = "For the period from:"
+    ws['L4'].font = font_bold
     ws['M4'] = datetime.today().strftime('%d/%m/%Y')
+    ws['M4'].font = font_regular
     ws['O4'] = "to"
+    ws['O4'].font = font_bold
     ws['P4'] = datetime.today().strftime('%d/%m/%Y')
+    ws['P4'].font = font_regular
 
     # --- PART 1: PROJECT INFORMATION ---
     ws.merge_cells('A6:S6')
     sec_cell = ws['A6']
-    sec_cell.value = "PART 1: PROJECT INFORMATION"
+    sec_cell.value = "   PART 1: PROJECT INFORMATION"
     sec_cell.font = font_section
-    sec_cell.fill = fill_gray_section
+    sec_cell.fill = fill_section_header
     sec_cell.alignment = align_left
-    ws.row_dimensions[6].height = 20
+    ws.row_dimensions[6].height = 22
 
     # Row 7: Program Info
     ws['A7'] = "Program Name"
     ws['A7'].font = font_bold
-    ws['A7'].fill = fill_yellow_cell
+    ws['A7'].fill = fill_label_cell
     ws['A7'].border = box_border
     
     ws.merge_cells('B7:I7')
@@ -410,14 +425,14 @@ def generate_official_defect_register_excel(defect_df):
 
     ws['J7'] = "Program #"
     ws['J7'].font = font_bold
-    ws['J7'].fill = fill_yellow_cell
+    ws['J7'].fill = fill_label_cell
     ws['J7'].border = box_border
     ws.merge_cells('K7:L7')
     ws['K7'].border = box_border
 
     ws['M7'] = "IT PM"
     ws['M7'].font = font_bold
-    ws['M7'].fill = fill_yellow_cell
+    ws['M7'].fill = fill_label_cell
     ws['M7'].border = box_border
     ws.merge_cells('N7:S7')
     ws['N7'].border = box_border
@@ -425,7 +440,7 @@ def generate_official_defect_register_excel(defect_df):
     # Row 8: Project Name Info
     ws['A8'] = "Project Name"
     ws['A8'].font = font_bold
-    ws['A8'].fill = fill_yellow_cell
+    ws['A8'].fill = fill_label_cell
     ws['A8'].border = box_border
     
     ws.merge_cells('B8:I8')
@@ -435,14 +450,14 @@ def generate_official_defect_register_excel(defect_df):
 
     ws['J8'] = "Project #"
     ws['J8'].font = font_bold
-    ws['J8'].fill = fill_yellow_cell
+    ws['J8'].fill = fill_label_cell
     ws['J8'].border = box_border
     ws.merge_cells('K8:L8')
     ws['K8'].border = box_border
 
     ws['M8'] = "Business PM"
     ws['M8'].font = font_bold
-    ws['M8'].fill = fill_yellow_cell
+    ws['M8'].fill = fill_label_cell
     ws['M8'].border = box_border
     ws.merge_cells('N8:S8')
     ws['N8'].border = box_border
@@ -450,7 +465,7 @@ def generate_official_defect_register_excel(defect_df):
     # Row 9: Sponsor Info
     ws['A9'] = "Project Sponsor"
     ws['A9'].font = font_bold
-    ws['A9'].fill = fill_yellow_cell
+    ws['A9'].fill = fill_label_cell
     ws['A9'].border = box_border
     
     ws.merge_cells('B9:I9')
@@ -460,26 +475,29 @@ def generate_official_defect_register_excel(defect_df):
 
     ws['J9'] = "Project Manager"
     ws['J9'].font = font_bold
-    ws['J9'].fill = fill_yellow_cell
+    ws['J9'].fill = fill_label_cell
     ws['J9'].border = box_border
     ws.merge_cells('K9:L9')
     ws['K9'].border = box_border
 
     ws['M9'] = "Project Start Date"
     ws['M9'].font = font_bold
-    ws['M9'].fill = fill_yellow_cell
+    ws['M9'].fill = fill_label_cell
     ws['M9'].border = box_border
     ws.merge_cells('N9:S9')
     ws['N9'].border = box_border
 
+    for r_idx in range(7, 10):
+        ws.row_dimensions[r_idx].height = 20
+
     # --- PART 2: DEFECTS TABLE HEADERS ---
-    ws.merge_cells('A11:S11')
+    ws.merge_cells('A11:U11')
     def_sec = ws['A11']
-    def_sec.value = "PART 2: DEFECTS"
+    def_sec.value = "   PART 2: DEFECTS"
     def_sec.font = font_section
-    def_sec.fill = fill_gray_section
+    def_sec.fill = fill_section_header
     def_sec.alignment = align_left
-    ws.row_dimensions[11].height = 20
+    ws.row_dimensions[11].height = 22
 
     headers = [
         "Origin (Build)", "Defect No.", "Defect Description", "Steps to Reproduce", 
@@ -489,22 +507,22 @@ def generate_official_defect_register_excel(defect_df):
         "Fixing Date", "Closed By", "Date of Closure", "SLA = (Date of Closure - Expected date of Closure)", "Comments"
     ]
     
-    ws.row_dimensions[12].height = 30
+    ws.row_dimensions[12].height = 32
     for col_idx, h_text in enumerate(headers, 1):
         c = ws.cell(row=12, column=col_idx)
         c.value = h_text
-        c.font = font_bold
+        c.font = font_table_hdr
         c.fill = fill_table_header
         c.alignment = align_center
         c.border = box_border
 
-    # --- POPULATE DEFECT ROWS ---
+    # --- POPULATE DEFECT ROWS WITH ZEBRA STRIPING ---
     curr_row = 13
     if not defect_df.empty:
-        for _, r in defect_df.iterrows():
+        for idx, (_, r) in enumerate(defect_df.iterrows()):
             ws.row_dimensions[curr_row].height = 24
             
-            # Robust fallbacks so fields never show up empty
+            # Fallbacks for empty descriptions
             desc_val = r.get("Defect Description", "")
             if not desc_val or str(desc_val).strip() in ["", "nan", "None"]:
                 desc_val = r.get("Test Case Description", "Defect found during test execution")
@@ -540,12 +558,36 @@ def generate_official_defect_register_excel(defect_df):
                 r.get("SLA", ""),
                 r.get("Comments", r.get("Remarks", ""))
             ]
+            
+            # Apply alternating row fill colors (zebra striping)
+            row_fill = fill_row_alt if idx % 2 == 1 else PatternFill(fill_type=None)
+
             for col_idx, val in enumerate(row_data, 1):
                 c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
                 c.font = font_regular
                 c.border = box_border
+                c.fill = row_fill
+                # Left align descriptive columns, center everything else
                 c.alignment = align_left if col_idx in [3, 4, 5, 21] else align_center
             curr_row += 1
+
+    # --- AUTO-FIT COLUMN WIDTHS NICELY ---
+    for col in ws.columns:
+        max_len = 0
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row < 12: # Skip header/banner rows for width calculation to prevent giant columns
+                continue
+            try:
+                if cell.value:
+                    lines = str(cell.value).split('\n')
+                    for line in lines:
+                        if len(str(line)) > max_len:
+                            max_len = len(str(line))
+            except:
+                pass
+        # Set a professional bound (minimum width 15, maximum width 45 for text wrapping)
+        ws.column_dimensions[col_letter].width = max(min(max_len + 4, 45), 15)
 
     wb.save(output)
     output.seek(0)
