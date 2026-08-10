@@ -1723,13 +1723,17 @@ elif menu == "⚙️ Admin Management":
                 with col_n1:
                     new_tc_id = st.text_input("Test Case ID (e.g., TC_CB_CR_P_01_005)")
                     
-                    # Module selection: Dropdown with option to type custom module
-                    mod_choice_type = st.radio("Module Input Mode", ["Select Existing Module", "Type Custom Module"])
+                    # Module selection: Use a selectbox that includes an option to add new, 
+                    # OR a text input that appears right below it.
+                    mod_choice_type = st.radio("Module Input Mode", ["Select Existing Module", "Type Custom Module"], key="mod_mode_radio")
+                    
+                    # Always render both fields conditionally using unique keys or separate variables
+                    new_module = ""
                     if mod_choice_type == "Select Existing Module":
-                        new_module = st.selectbox("Select Module Name", existing_modules)
+                        new_module = st.selectbox("Select Module Name", existing_modules, key="sel_existing_mod")
                     else:
-                        custom_mod_input = st.text_input("Enter New Module Name (Exact match)")
-                        new_module = custom_mod_input.strip() if custom_mod_input else ""
+                        custom_mod_input = st.text_input("Type Custom Module Name (Exact match)", placeholder="e.g., Other Bank Cards", key="txt_custom_mod")
+                        new_module = custom_mod_input.strip()
                         
                 with col_n2:
                     new_category = st.selectbox("Category", ["Card Based", "Cardless", "Other Bank Cards"])
@@ -1752,7 +1756,7 @@ elif menu == "⚙️ Admin Management":
                             new_test_desc, new_pre_cond, new_test_steps, new_exp_result, new_path_type
                         )
                         if success:
-                            st.success(f"Successfully added test case {new_tc_id} under module '{new_module}'!")
+                            st.success(f"Successfully added test case {new_tc_id} under module '{new_module}'! It will now appear in your dropdowns.")
                             st.rerun()
 
         with tab_del:
