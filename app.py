@@ -339,6 +339,107 @@ def generate_professional_report_excel(df_data, report_title="UAT FILTERED REPOR
     output.seek(0)
     return output
 
+def generate_official_defect_register_excel(defect_df):
+    output = io.BytesIO()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Defect Tracking Register"
+    
+    ws.views.sheetView[0].showGridLines = True
+    font_family = "Calibri"
+    
+    fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    fill_yellow_banner = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    fill_gray_section = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    fill_table_header = PatternFill(start_color="BFBFBF", end_color="BFBFBF", fill_type="solid")
+    
+    font_title = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+    font_section = Font(name=font_family, size=10, bold=True, color="000000")
+    font_bold = Font(name=font_family, size=10, bold=True)
+    font_regular = Font(name=font_family, size=10)
+    
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    
+    thin_border_side = Side(border_style="thin", color="000000")
+    box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+
+    # Title block
+    ws.merge_cells('A1:U1')
+    cell = ws['A1']
+    cell.value = "UAT DEFECT TRACKING REGISTER"
+    cell.font = font_title
+    cell.fill = fill_dark_header
+    cell.alignment = align_center
+    ws.row_dimensions[1].height = 25
+
+    ws['R2'] = "Template: IT-IMP-025"
+    ws['R2'].font = font_regular
+    ws['R3'] = "Version: 1.0"
+    ws['R3'].font = font_regular
+    ws['R4'] = f"Effective Date: {datetime.today().strftime('%d/%m/%Y')}"
+    ws['R4'].font = font_regular
+
+    # Project Info Section
+    ws.merge_cells('A5:U5')
+    cell = ws['A5']
+    cell.value = "PART I: PROJECT INFORMATION"
+    cell.font = font_section
+    cell.fill = fill_gray_section
+    cell.alignment = align_left
+    ws.row_dimensions[5].height = 20
+
+    ws['A6'] = "Project Name"
+    ws['A6'].font = font_bold
+    ws['A6'].fill = fill_yellow_banner
+    ws['A6'].border = box_border
+    
+    ws.merge_cells('C6:E6')
+    ws['C6'] = "People's Bank GRG CRM UAT"
+    ws['C6'].font = font_regular
+    ws['C6'].border = box_border
+
+    # Table Headers for Defects
+    headers = [
+        "TC ID", "Module Name", "Test Description", "Test Steps", "Expected Result", 
+        "Actual Result", "Executed By", "UTANO", "RRN", "FE", "SIBS", 
+        "Severity", "Priority", "Defect Status", "Assigned To", "Target Date", 
+        "Root Cause", "Defect Description", "Remarks"
+    ]
+    
+    ws.row_dimensions[9].height = 25
+    for col_idx, h_text in enumerate(headers, 1):
+        c = ws.cell(row=9, column=col_idx)
+        c.value = h_text
+        c.font = font_bold
+        c.fill = fill_table_header
+        c.alignment = align_center
+        c.border = box_border
+
+    # Populate Data
+    curr_row = 10
+    if not defect_df.empty:
+        for _, r in defect_df.iterrows():
+            ws.row_dimensions[curr_row].height = 22
+            row_data = [
+                r.get("TC ID", ""), r.get("Module Name", ""), r.get("Test Case Description", ""),
+                r.get("Test Steps", ""), r.get("Expected Result", ""), r.get("Actual Result", ""),
+                r.get("Executed By", ""), r.get("Utano", ""), r.get("RRN", ""), r.get("FE", ""),
+                r.get("SIBS", ""), r.get("Severity", ""), r.get("Priority", ""), r.get("Defect Status", ""),
+                r.get("Assigned To", ""), r.get("Target Date", ""), r.get("Root Cause", ""),
+                r.get("Defect Description", ""), r.get("Remarks", "")
+            ]
+            for col_idx, val in enumerate(row_data, 1):
+                c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
+                c.font = font_regular
+                c.border = box_border
+                c.alignment = align_left
+            curr_row += 1
+
+    wb.save(output)
+    output.seek(0)
+    return output
+
 
 
 
