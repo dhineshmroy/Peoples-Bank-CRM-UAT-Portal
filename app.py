@@ -1348,11 +1348,11 @@ if menu == "📊 Live Dashboard":
                 c_rate = (c_pass / c_total * 100) if c_total > 0 else 0.0
                 
                 sub_col1, sub_col2, sub_col3, sub_col4, sub_col5 = st.columns(5)
-                sub_col1.metric("Total Cases", c_total)
-                sub_col2.metric("Passed", c_pass, delta=f"{c_rate:.1f}%")
-                sub_col3.metric("Failed", c_fail)
-                sub_col4.metric("Pending", c_pend)
-                sub_col5.metric("N/A", c_na)
+                sub_col1.markdown(f'<div class="metric-card"><div class="metric-num">{c_total}</div><div class="metric-label">Total Cases</div></div>', unsafe_allow_html=True)
+                sub_col2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{c_pass}</div><div class="metric-label">Passed ({c_rate:.1f}%)</div></div>', unsafe_allow_html=True)
+                sub_col3.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #dc2626;">{c_fail}</div><div class="metric-label">Failed</div></div>', unsafe_allow_html=True)
+                sub_col4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{c_na}</div><div class="metric-label">Not Applicable</div></div>', unsafe_allow_html=True)
+                sub_col5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{c_pend}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
                 
                 st.write("")
                 st.markdown("##### Module Performance Summary Table")
