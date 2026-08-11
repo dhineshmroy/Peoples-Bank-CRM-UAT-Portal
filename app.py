@@ -1301,13 +1301,23 @@ st.divider()
 if menu == "📊 Live Dashboard":
     st.subheader("🎯 Overall Testing Progress Summary")
     
-    total = len(df)
-    passed = len(df[df['Status'] == 'PASS']) if not df.empty and 'Status' in df.columns else 0
-    failed = len(df[df['Status'] == 'FAIL']) if not df.empty and 'Status' in df.columns else 0
-    NA = len(df[df['Status'] == 'N/A']) if not df.empty and 'Status' in df.columns else 0
-    pending = len(df[df['Status'] == 'PENDING']) if not df.empty and 'Status' in df.columns else 0
+    # Normalize status values safely
+    dash_df = df.copy()
+    if not dash_df.empty and 'Status' in dash_df.columns:
+        dash_df['Normalized_Status'] = dash_df['Status'].apply(
+            lambda s: str(s).upper().strip() if str(s).strip() and str(s).lower() not in ['nan', 'none', ''] else 'PENDING'
+        )
+    else:
+        dash_df['Normalized_Status'] = 'PENDING'
+
+    total = len(dash_df)
+    passed = len(dash_df[dash_df['Normalized_Status'] == 'PASS'])
+    failed = len(dash_df[dash_df['Normalized_Status'] == 'FAIL'])
+    NA = len(dash_df[dash_df['Normalized_Status'] == 'N/A'])
+    pending = len(dash_df[dash_df['Normalized_Status'] == 'PENDING'])
     pass_pct = round((passed / total * 100), 1) if total > 0 else 0
 
+    # Global Metrics Cards
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.markdown(f'<div class="metric-card"><div class="metric-num">{total}</div><div class="metric-label">Total Cases</div></div>', unsafe_allow_html=True)
     m2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{passed}</div><div class="metric-label">Passed ({pass_pct}%)</div></div>', unsafe_allow_html=True)
@@ -1316,6 +1326,56 @@ if menu == "📊 Live Dashboard":
     m5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{pending}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
 
     st.write("")
+    st.divider()
+
+    # --- CATEGORY & MODULE BREAKDOWN SECTION ---
+    st.markdown("### 🏷️ Category & Module Execution Breakdown")
+    
+    categories = list(dash_df['Category'].dropna().unique()) if 'Category' in dash_df.columns else []
+    
+    if categories:
+        cat_tabs = st.tabs([f"📂 {cat}" for cat in categories])
+        
+        for idx, cat in enumerate(categories):
+            with cat_tabs[idx]:
+                cat_subset = dash_df[dash_df['Category'] == cat]
+                
+                c_total = len(cat_subset)
+                c_pass = len(cat_subset[cat_subset['Normalized_Status'] == 'PASS'])
+                c_fail = len(cat_subset[cat_subset['Normalized_Status'] == 'FAIL'])
+                c_pend = len(cat_subset[cat_subset['Normalized_Status'] == 'PENDING'])
+                c_na = len(cat_subset[cat_subset['Normalized_Status'] == 'N/A'])
+                c_rate = (c_pass / c_total * 100) if c_total > 0 else 0.0
+                
+                sub_col1, sub_col2, sub_col3, sub_col4, sub_col5 = st.columns(5)
+                sub_col1.metric("Total Cases", c_total)
+                sub_col2.metric("Passed", c_pass, delta=f"{c_rate:.1f}%")
+                sub_col3.metric("Failed", c_fail)
+                sub_col4.metric("Pending", c_pend)
+                sub_col5.metric("N/A", c_na)
+                
+                st.write("")
+                st.markdown("##### Module Performance Summary Table")
+                
+                if 'Module Name' in cat_subset.columns:
+                    module_summary = cat_subset.groupby('Module Name')['Normalized_Status'].value_counts().unstack(fill_value=0)
+                    
+                    for st_col in ['PASS', 'FAIL', 'PENDING', 'N/A']:
+                        if st_col not in module_summary.columns:
+                            module_summary[st_col] = 0
+                            
+                    module_summary['Total'] = module_summary[['PASS', 'FAIL', 'PENDING', 'N/A']].sum(axis=1)
+                    module_summary['Pass Rate (%)'] = (module_summary['PASS'] / module_summary['Total'] * 100).round(1)
+                    
+                    display_summary = module_summary[['Total', 'PASS', 'FAIL', 'PENDING', 'N/A', 'Pass Rate (%)']].reset_index()
+                    
+                    st.dataframe(
+                        display_summary,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+    st.divider()
     st.subheader("📋 Master Test Cases Overview & Multi-Filters")
     
     all_cats_list = list(df['Category'].unique()) if not df.empty and 'Category' in df.columns else []
