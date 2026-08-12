@@ -272,9 +272,10 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
     # Remove default sheet so we can add custom named tabs dynamically
     default_sheet = wb.active
     
-    font_family = "Calibri"
+    font_family = "Times New Roman"
     fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     fill_table_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid") # Light gray tint for zebra striping
     
     font_title = Font(name=font_family, size=13, bold=True, color="FFFFFF")
     font_bold = Font(name=font_family, size=10, bold=True, color="000000")
@@ -289,6 +290,7 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
     if df_data.empty:
         ws = wb.create_sheet(title="No Data")
         ws['A1'] = "No test cases available for the selected filters."
+        ws['A1'].font = font_regular
         wb.remove(default_sheet)
         wb.save(output)
         output.seek(0)
@@ -309,7 +311,6 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
     for group_key, group_df in grouped:
         if isinstance(group_key, tuple) and len(group_key) == 3:
             cat, mod, path = group_key
-            # Format: "Cash Deposit - Pos" or similar concise naming
             path_short = "Pos" if str(path).lower().startswith("pos") else "Neg"
             base_name = f"{str(mod)[:20]} - {path_short}"
         elif isinstance(group_key, tuple) and len(group_key) == 2:
@@ -322,7 +323,6 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
         for char in ['\\', '/', '?', '*', '[', ']', ':']:
             base_name = base_name.replace(char, '')
             
-        # Ensure sheet name is unique and under Excel's 31-character limit
         final_name = base_name[:31]
         counter = 1
         while final_name in used_sheet_names:
@@ -362,14 +362,21 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
             c.border = box_border
 
         curr_row = 5
-        for _, r in group_df.iterrows():
+        for idx, (_, r) in enumerate(group_df.iterrows()):
             ws.row_dimensions[curr_row].height = 24
+            
+            # Apply zebra striping: odd rows have no fill (white), even rows have light gray fill
+            row_fill = fill_row_alt if idx % 2 == 1 else PatternFill(fill_type=None)
+
             for col_idx, col_name in enumerate(headers, 1):
                 val = r.get(col_name, '')
                 c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
                 c.font = font_regular
                 c.border = box_border
-                if col_name in ['TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'Severity', 'Priority', 'Defect Status']:
+                c.fill = row_fill
+                
+                # Center-align specific columns including Category, FE, and SIBS
+                if col_name in ['Category', 'TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'FE', 'SIBS', 'Severity', 'Priority', 'Defect Status']:
                     c.alignment = align_center
                 else:
                     c.alignment = align_left
