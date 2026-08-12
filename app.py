@@ -311,21 +311,28 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
     for group_key, group_df in grouped:
         if isinstance(group_key, tuple) and len(group_key) == 3:
             cat, mod, path = group_key
-            path_short = "Pos" if str(path).lower().startswith("pos") else "Neg"
-            base_name = f"{str(mod)[:20]} - {path_short}"
-        elif isinstance(group_key, tuple) and len(group_key) == 2:
-            a, b = group_key
-            base_name = f"{str(a)[:15]} - {str(b)[:10]}"
         else:
-            base_name = str(group_key)[:30]
+            # Fallback if grouped differently: inspect the first row of the group dataframe
+            cat = group_df.iloc[0].get('Category', 'General') if not group_df.empty else 'General'
+            mod = group_df.iloc[0].get('Module Name', 'Module') if not group_df.empty else 'Module'
+            path = group_df.iloc[0].get('Path Type', 'Positive') if not group_df.empty else 'Positive'
+
+        # Safely determine if it is Positive or Negative based on path value
+        path_str = str(path).lower().strip()
+        is_neg = "neg" in path_str or "negative" in path_str
+        path_short = "Neg" if is_neg else "Pos"
+        
+        base_name = f"{str(mod)[:20]} - {path_short}"
             
         # Clean invalid characters for Excel sheet names (\, /, ?, *, [, ], :)
         for char in ['\\', '/', '?', '*', '[', ']', ':']:
             base_name = base_name.replace(char, '')
             
+        # Ensure sheet name is unique under Excel's 31-character limit without adding unwanted numbers if possible
         final_name = base_name[:31]
         counter = 1
         while final_name in used_sheet_names:
+            # If it's a true duplicate name, ensure clean distinction
             suffix = f"_{counter}"
             final_name = base_name[:31 - len(suffix)] + suffix
             counter += 1
