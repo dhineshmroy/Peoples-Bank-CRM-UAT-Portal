@@ -1679,33 +1679,37 @@ elif menu == "🛠️ Defect Tracker":
     else:
         defect_df = pd.DataFrame()
 
-    # --- SORT BY TC ID (Defect No.) LOGIC ---
+    # --- SORT & SEARCH DEFECTS ---
     if not defect_df.empty and 'TC ID' in defect_df.columns:
         defect_df = defect_df.sort_values(by='TC ID', ascending=True).reset_index(drop=True)
 
-    # --- DATE FILTER CONFIGURATION FOR DEFECTS ---
     if not defect_df.empty:
-        st.markdown("#### 📅 Date Filter Configuration")
-        d_mode_col1, d_mode_col2 = st.columns(2)
-        with d_mode_col1:
+        st.markdown("#### 🔍 Search & Filter Defects")
+        sch_col1, sch_col2 = st.columns([2, 2])
+        with sch_col1:
+            def_search_kw = st.text_input("Search by Defect ID (TC ID) or Description", placeholder="e.g. TC_CD_CB or Invalid", key="def_search_input")
+        with sch_col2:
             enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
-        with d_mode_col2:
-            if enable_def_date_filter:
-                def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
-            else:
-                def_date_mode = None
 
-        def_date_range = None
-        specific_def_date = None
+        # Apply search keyword filter
+        if def_search_kw and not defect_df.empty:
+            defect_df = defect_df[
+                defect_df['TC ID'].str.contains(def_search_kw, case=False, na=False) | 
+                defect_df['Test Case Description'].str.contains(def_search_kw, case=False, na=False) |
+                defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).str.contains(def_search_kw, case=False, na=False)
+            ]
 
+        # --- DATE FILTER CONFIGURATION FOR DEFECTS ---
         if enable_def_date_filter:
+            def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
+            def_date_range = None
+            specific_def_date = None
+
             if def_date_mode == "Date Range":
                 def_date_range = st.date_input("Select Execution Date Range", value=(date.today(), date.today()), key="def_date_rng")
             else:
                 specific_def_date = st.date_input("Select Specific Execution Date", value=date.today(), key="def_specific_date")
 
-        # Apply date filter if enabled
-        if enable_def_date_filter:
             def parse_dt(val):
                 if not val or pd.isna(val): return None
                 try:
@@ -1782,90 +1786,92 @@ elif menu == "🛠️ Defect Tracker":
                 if is_admin:
                     st.markdown("#### ⚙️ Admin Complete Defect Editing & Matrix Panel")
                     
-                    col_a1, col_a2, col_a3 = st.columns(3)
-                    with col_a1:
-                        adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V1'), key=f"orig_build_{d_key}")
-                        adm_cr_ref = st.text_input("CR Reference", value=row.get('CR Reference', ''), key=f"cr_ref_{d_key}")
-                        adm_defect_cat = st.text_input("Defect Category", value=row.get('Defect Category', row.get('Category', '')), key=f"def_cat_{d_key}")
-                    with col_a2:
-                        adm_fixing_date = st.text_input("Fixing Date", value=row.get('Fixing Date', ''), key=f"fix_date_{d_key}")
-                        adm_closed_by = st.text_input("Closed By", value=row.get('Closed By', ''), key=f"closed_by_{d_key}")
-                        adm_date_closure = st.text_input("Date of Closure", value=row.get('Date of Closure', ''), key=f"date_closure_{d_key}")
-                    with col_a3:
-                        adm_sla = st.text_input("SLA", value=row.get('SLA', ''), key=f"sla_{d_key}")
-                        adm_detected_by = st.text_input("Detected By", value=row.get('Detected By', row.get('Executed By', '')), key=f"det_by_{d_key}")
-                        adm_date_origin = st.text_input("Date of Defect Origin", value=row.get('Date of Defect Origin', row.get('Executed Date', '')), key=f"det_org_{d_key}")
+                    # Wrap admin edit panel inside an st.form so input values are properly captured and saved on button click
+                    with st.form(key=f"admin_defect_form_{d_key}"):
+                        col_a1, col_a2, col_a3 = st.columns(3)
+                        with col_a1:
+                            adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V1'), key=f"orig_build_{d_key}")
+                            adm_cr_ref = st.text_input("CR Reference", value=row.get('CR Reference', ''), key=f"cr_ref_{d_key}")
+                            adm_defect_cat = st.text_input("Defect Category", value=row.get('Defect Category', row.get('Category', '')), key=f"def_cat_{d_key}")
+                        with col_a2:
+                            adm_fixing_date = st.text_input("Fixing Date", value=row.get('Fixing Date', ''), key=f"fix_date_{d_key}")
+                            adm_closed_by = st.text_input("Closed By", value=row.get('Closed By', ''), key=f"closed_by_{d_key}")
+                            adm_date_closure = st.text_input("Date of Closure", value=row.get('Date of Closure', ''), key=f"date_closure_{d_key}")
+                        with col_a3:
+                            adm_sla = st.text_input("SLA", value=row.get('SLA', ''), key=f"sla_{d_key}")
+                            adm_detected_by = st.text_input("Detected By", value=row.get('Detected By', row.get('Executed By', '')), key=f"det_by_{d_key}")
+                            adm_date_origin = st.text_input("Date of Defect Origin", value=row.get('Date of Defect Origin', row.get('Executed Date', '')), key=f"det_org_{d_key}")
 
-                    adm_def_desc = st.text_area("Defect Description", value=default_desc, height=70, key=f"adm_def_desc_{d_key}")
-                    adm_steps = st.text_area("Steps to Reproduce", value=default_steps, height=70, key=f"steps_{d_key}")
-                    adm_expected = st.text_area("Expected Results", value=default_expected, height=70, key=f"adm_exp_{d_key}")
-                    adm_comments = st.text_input("Comments", value=row.get('Comments', row.get('Remarks', '')), key=f"adm_comm_{d_key}")
-                    
-                    col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-                    with col_e1:
-                        adm_exec_by = st.text_input("Executed By", value=row.get('Executed By', ''), key=f"exec_{d_key}")
-                    with col_e2:
-                        adm_utano = st.text_input("Utano", value=row.get('Utano', ''), key=f"utano_{d_key}")
-                    with col_e3:
-                        adm_fe = st.text_input("FE", value=row.get('FE', ''), key=f"fe_{d_key}")
-                    with col_e4:
-                        adm_sibs = st.text_input("SIBS", value=row.get('SIBS', ''), key=f"sibs_{d_key}")
-
-                    st.divider()
-                    
-                    sev_options = ["Low", "Medium", "High", "Critical"]
-                    curr_sev = row.get('Severity', 'Medium')
-                    if curr_sev not in sev_options: curr_sev = "Medium"
-                    
-                    pri_options = ["Low", "Moderate", "High"]
-                    curr_pri = str(row.get('Priority', 'Moderate')).strip()
-                    
-                    if curr_pri in ["Medium", "medium"]:
-                        curr_pri = "Moderate"
+                        adm_def_desc = st.text_area("Defect Description", value=default_desc, height=70, key=f"adm_def_desc_{d_key}")
+                        adm_steps = st.text_area("Steps to Reproduce", value=default_steps, height=70, key=f"steps_{d_key}")
+                        adm_expected = st.text_area("Expected Results", value=default_expected, height=70, key=f"adm_exp_{d_key}")
+                        adm_comments = st.text_input("Comments", value=row.get('Comments', row.get('Remarks', '')), key=f"adm_comm_{d_key}")
                         
-                    if curr_pri not in pri_options: 
-                        curr_pri = "Moderate"
-                    
-                    stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
-                    curr_stat = row.get('Defect Status', 'Open')
-                    if curr_stat not in stat_options: curr_stat = "Open"
-                    
-                    assign_options = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
-                    curr_assign = row.get('Assigned To', 'Development Team')
-                    if curr_assign not in assign_options: curr_assign = "Development Team"
+                        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                        with col_e1:
+                            adm_exec_by = st.text_input("Executed By", value=row.get('Executed By', ''), key=f"exec_{d_key}")
+                        with col_e2:
+                            adm_utano = st.text_input("Utano", value=row.get('Utano', ''), key=f"utano_{d_key}")
+                        with col_e3:
+                            adm_fe = st.text_input("FE", value=row.get('FE', ''), key=f"fe_{d_key}")
+                        with col_e4:
+                            adm_sibs = st.text_input("SIBS", value=row.get('SIBS', ''), key=f"sibs_{d_key}")
 
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        adm_severity = st.selectbox("Severity", sev_options, index=sev_options.index(curr_sev), key=f"sev_{d_key}")
-                        adm_status = st.selectbox("Defect Status", stat_options, index=stat_options.index(curr_stat), key=f"stat_{d_key}")
-                    with col_m2:
-                        adm_priority = st.selectbox("Priority", pri_options, index=pri_options.index(curr_pri), key=f"pri_{d_key}")
-                        adm_assigned = st.selectbox("Assigned To", assign_options, index=assign_options.index(curr_assign), key=f"assign_{d_key}")
-                    with col_m3:
-                        today_dt = datetime.today()
-                        try:
-                            t_val = row.get('Target Date', '')
-                            default_dt = datetime.strptime(t_val, "%Y-%m-%d").date() if t_val else today_dt
-                        except Exception:
-                            default_dt = today_dt
-                        adm_target_date = st.date_input("Expected Date of Closure / Target Date", value=default_dt, key=f"tdate_{d_key}").strftime("%Y-%m-%d")
+                        st.divider()
+                        
+                        sev_options = ["Low", "Medium", "High", "Critical"]
+                        curr_sev = row.get('Severity', 'Medium')
+                        if curr_sev not in sev_options: curr_sev = "Medium"
+                        
+                        pri_options = ["Low", "Moderate", "High"]
+                        curr_pri = str(row.get('Priority', 'Moderate')).strip()
+                        if curr_pri in ["Medium", "medium"]:
+                            curr_pri = "Moderate"
+                        if curr_pri not in pri_options: 
+                            curr_pri = "Moderate"
+                        
+                        stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
+                        curr_stat = row.get('Defect Status', 'Open')
+                        if curr_stat not in stat_options: curr_stat = "Open"
+                        
+                        assign_options = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
+                        curr_assign = row.get('Assigned To', 'Development Team')
+                        if curr_assign not in assign_options: curr_assign = "Development Team"
 
-                    curr_root = row.get('Root Cause', '')
-                    adm_root_cause = st.text_area("Root Cause / Developer Resolution Notes", value=curr_root, height=80, key=f"root_{d_key}")
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            adm_severity = st.selectbox("Severity", sev_options, index=sev_options.index(curr_sev), key=f"sev_{d_key}")
+                            adm_status = st.selectbox("Defect Status", stat_options, index=stat_options.index(curr_stat), key=f"stat_{d_key}")
+                        with col_m2:
+                            adm_priority = st.selectbox("Priority", pri_options, index=pri_options.index(curr_pri), key=f"pri_{d_key}")
+                            adm_assigned = st.selectbox("Assigned To", assign_options, index=assign_options.index(curr_assign), key=f"assign_{d_key}")
+                        with col_m3:
+                            today_dt = datetime.today()
+                            try:
+                                t_val = row.get('Target Date', '')
+                                default_dt = datetime.strptime(t_val, "%Y-%m-%d").date() if t_val else today_dt
+                            except Exception:
+                                default_dt = today_dt
+                            adm_target_date = st.date_input("Expected Date of Closure / Target Date", value=default_dt, key=f"tdate_{d_key}").strftime("%Y-%m-%d")
 
-                    if st.button(f"💾 Save All Defect Changes to Database ({tc_id})", key=f"save_def_{d_key}", use_container_width=True):
-                        admin_update_full_defect_details(
-                            tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
-                            fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
-                            assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
-                            origin_build=adm_origin_build, defect_desc=adm_def_desc, defect_steps=adm_steps,
-                            defect_expected=adm_expected, defect_attachment=safe_basename(row.get('Photo_Path', row.get('Receipt_Path', ''))),
-                            cr_ref=adm_cr_ref, defect_cat=adm_defect_cat, expected_date_closure=adm_target_date,
-                            fixing_date=adm_fixing_date, closed_by=adm_closed_by, date_closure=adm_date_closure,
-                            comments=adm_comments, date_defect_origin=adm_date_origin, detected_by=adm_detected_by
-                        )
-                        st.success(f"Defect report updated successfully for {tc_id}!")
-                        st.rerun()
+                        curr_root = row.get('Root Cause', '')
+                        adm_root_cause = st.text_area("Root Cause / Developer Resolution Notes", value=curr_root, height=80, key=f"root_{d_key}")
+
+                        submitted_admin_def = st.form_submit_button(f"💾 Save All Defect Changes to Database ({tc_id})", use_container_width=True)
+
+                        if submitted_admin_def:
+                            admin_update_full_defect_details(
+                                tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
+                                fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
+                                assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
+                                origin_build=adm_origin_build, defect_desc=adm_def_desc, defect_steps=adm_steps,
+                                defect_expected=adm_expected, defect_attachment=safe_basename(row.get('Photo_Path', row.get('Receipt_Path', ''))),
+                                cr_ref=adm_cr_ref, defect_cat=adm_defect_cat, expected_date_closure=adm_target_date,
+                                fixing_date=adm_fixing_date, closed_by=adm_closed_by, date_closure=adm_date_closure,
+                                comments=adm_comments, date_defect_origin=adm_date_origin, detected_by=adm_detected_by
+                            )
+                            st.success(f"Defect report updated successfully for {tc_id}!")
+                            st.rerun()
                 else:
                     c_inf1, c_inf2 = st.columns(2)
                     with c_inf1:
