@@ -361,12 +361,15 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
             c.alignment = align_center
             c.border = box_border
 
+        fill_row_white = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")
+
         curr_row = 5
         for idx, (_, r) in enumerate(group_df.iterrows()):
             ws.row_dimensions[curr_row].height = 24
             
-            # Apply zebra striping: odd rows have no fill (white), even rows have light gray fill
-            row_fill = fill_row_alt if idx % 2 == 1 else PatternFill(fill_type=None)
+            # Explicitly set white for odd rows, light gray for even rows
+            row_fill = fill_row_alt if idx % 2 == 1 else fill_row_white
 
             for col_idx, col_name in enumerate(headers, 1):
                 val = r.get(col_name, '')
@@ -375,7 +378,7 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
                 c.border = box_border
                 c.fill = row_fill
                 
-                # Center-align specific columns including Category, FE, and SIBS
+                # Center-align Category, FE, SIBS, and other metadata columns
                 if col_name in ['Category', 'TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'FE', 'SIBS', 'Severity', 'Priority', 'Defect Status']:
                     c.alignment = align_center
                 else:
