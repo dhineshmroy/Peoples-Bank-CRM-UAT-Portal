@@ -272,25 +272,10 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
     # Remove default sheet so we can add custom named tabs dynamically
     default_sheet = wb.active
     
-    # --- AUTOMATICALLY CORRECT MISLABELED PATH TYPES ---
-    if not df_data.empty and 'Path Type' in df_data.columns and 'TC ID' in df_data.columns:
-        mask = (
-            df_data['Path Type'].str.lower().str.contains("pos") & 
-            (
-                df_data['TC ID'].str.lower().str.contains("neg") | 
-                df_data.get('Test Case Description', pd.Series('', index=df_data.index)).str.lower().str.contains("neg") |
-                df_data.get('Test Case Description', pd.Series('', index=df_data.index)).str.lower().str.contains("invalid") |
-                df_data.get('Test Case Description', pd.Series('', index=df_data.index)).str.lower().str.contains("wrong")
-            )
-        )
-        df_data.loc[mask, 'Path Type'] = "Negative"
-    # --------------------------------------------------
-
     font_family = "Times New Roman"
     fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     fill_table_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    fill_row_white = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")
+    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid") # Light gray tint for zebra striping
     
     font_title = Font(name=font_family, size=13, bold=True, color="FFFFFF")
     font_bold = Font(name=font_family, size=10, bold=True, color="000000")
@@ -327,10 +312,12 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
         if isinstance(group_key, tuple) and len(group_key) == 3:
             cat, mod, path = group_key
         else:
+            # Fallback if grouped differently: inspect the first row of the group dataframe
             cat = group_df.iloc[0].get('Category', 'General') if not group_df.empty else 'General'
             mod = group_df.iloc[0].get('Module Name', 'Module') if not group_df.empty else 'Module'
             path = group_df.iloc[0].get('Path Type', 'Positive') if not group_df.empty else 'Positive'
 
+        # Safely determine if it is Positive or Negative based on path value
         path_str = str(path).lower().strip()
         is_neg = "neg" in path_str or "negative" in path_str
         path_short = "Neg" if is_neg else "Pos"
@@ -341,9 +328,11 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
         for char in ['\\', '/', '?', '*', '[', ']', ':']:
             base_name = base_name.replace(char, '')
             
+        # Ensure sheet name is unique under Excel's 31-character limit without adding unwanted numbers if possible
         final_name = base_name[:31]
         counter = 1
         while final_name in used_sheet_names:
+            # If it's a true duplicate name, ensure clean distinction
             suffix = f"_{counter}"
             final_name = base_name[:31 - len(suffix)] + suffix
             counter += 1
@@ -379,11 +368,14 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
             c.alignment = align_center
             c.border = box_border
 
+        fill_row_white = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")
+
         curr_row = 5
         for idx, (_, r) in enumerate(group_df.iterrows()):
             ws.row_dimensions[curr_row].height = 24
             
-            # Explicit zebra striping: crisp white for odd rows, light warm gray for even rows
+            # Explicitly set white for odd rows, light gray for even rows
             row_fill = fill_row_alt if idx % 2 == 1 else fill_row_white
 
             for col_idx, col_name in enumerate(headers, 1):
@@ -393,7 +385,7 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
                 c.border = box_border
                 c.fill = row_fill
                 
-                # Center-align Category, FE, SIBS, and metadata columns
+                # Center-align Category, FE, SIBS, and other metadata columns
                 if col_name in ['Category', 'TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'FE', 'SIBS', 'Severity', 'Priority', 'Defect Status']:
                     c.alignment = align_center
                 else:
@@ -410,6 +402,7 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
                         max_len = len(val_str)
             ws.column_dimensions[col_letter].width = max(min(max_len + 4, 40), 12)
 
+    # Remove the default blank sheet created by openpyxl
     if default_sheet in wb.worksheets:
         wb.remove(default_sheet)
 
