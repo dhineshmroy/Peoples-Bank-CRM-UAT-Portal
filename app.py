@@ -76,16 +76,7 @@ def load_data_from_db():
                 "ASSIGNED_TO" as "Assigned To",
                 "TARGET_DATE" as "Target Date",
                 "ROOT_CAUSE" as "Root Cause",
-                "DEFECT_DESCRIPTION" as "Defect Description",
-                "ORIGIN_BUILD" as "Origin (Build)",
-                "CR_REFERENCE" as "CR Reference",
-                "DEFECT_CATEGORY" as "Defect Category",
-                "FIXING_DATE" as "Fixing Date",
-                "CLOSED_BY" as "Closed By",
-                "DATE_CLOSURE" as "Date of Closure",
-                "COMMENTS" as "Comments",
-                "DATE_DEFECT_ORIGIN" as "Date of Defect Origin",
-                "DETECTED_BY" as "Detected By"
+                "DEFECT_DESCRIPTION" as "Defect Description"
             FROM uat_test_cases_v2
         """
         df = pd.read_sql(query, con=conn)
