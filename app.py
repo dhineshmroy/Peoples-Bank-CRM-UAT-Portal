@@ -191,20 +191,36 @@ def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_resu
     c_assigned = clean_val(assigned_to)
     c_target = clean_val(target_date)
     c_root = clean_val(root_cause)
+    c_def_desc = clean_val(defect_desc)
+    c_cr_ref = clean_val(cr_ref)
+    c_def_cat = clean_val(defect_cat)
+    c_fixing_date = clean_val(fixing_date)
+    c_closed_by = clean_val(closed_by)
+    c_date_closure = clean_val(date_closure)
+    c_comments = clean_val(comments)
+    c_detected_by = clean_val(detected_by)
 
     try:
         cursor.execute("""
             UPDATE uat_test_cases_v2 
             SET "TEST_STEPS" = %s, "ACTUAL_RESULT" = %s, "EXECUTED_BY" = %s, "UTANO" = %s, "RRN" = %s, 
                 "FE" = %s, "SIBS" = %s, "SEVERITY" = %s, "PRIORITY" = %s, "DEFECT_STATUS" = %s, 
-                "ASSIGNED_TO" = %s, "TARGET_DATE" = %s, "ROOT_CAUSE" = %s
+                "ASSIGNED_TO" = %s, "TARGET_DATE" = %s, "ROOT_CAUSE" = %s, "DEFECT_DESCRIPTION" = %s,
+                "CR_REFERENCE" = %s, "DEFECT_CATEGORY" = %s, "FIXING_DATE" = %s, "CLOSED_BY" = %s,
+                "DATE_CLOSURE" = %s, "COMMENTS" = %s, "DETECTED_BY" = %s
             WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
-        """, (c_steps, c_act, c_exec_by, c_utano, c_rrn, c_fe, c_sibs, c_sev, c_pri, c_def_status, c_assigned, c_target, c_root, tc_id, module_name))
+        """, (c_steps, c_act, c_exec_by, c_utano, c_rrn, c_fe, c_sibs, c_sev, c_pri, c_def_status, 
+              c_assigned, c_target, c_root, c_def_desc, c_cr_ref, c_def_cat, c_fixing_date, 
+              c_closed_by, c_date_closure, c_comments, c_detected_by, tc_id, module_name))
         conn.commit()
     except Exception as e:
         st.error(f"Database error updating defect details: {e}")
     cursor.close()
     conn.close()
+    
+    # Clear cache so Streamlit reloads fresh data from the database immediately
+    if hasattr(st, "cache_data"):
+        st.cache_data.clear()
 
 def insert_new_test_case_to_db(tc_id, category, module_name, test_area, test_desc, pre_cond, test_steps, exp_result, path_type):
     conn = get_db_connection()
