@@ -532,7 +532,7 @@ def generate_official_defect_register_excel(defect_df):
                 exp_val = r.get("Expected Results", "System should process successfully without errors")
 
             row_data = [
-                r.get("Origin (Build)", "CRM V2"),
+                r.get("Origin (Build)", "CRM V1"),
                 r.get("TC ID", ""),
                 desc_val,
                 steps_val,
