@@ -265,15 +265,14 @@ def update_crm_lock_in_db(status, user):
     cursor.close()
     conn.close()
 
-def generate_professional_report_excel(df_data, report_title="UAT FILTERED REPORT"):
+def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST CASES REPORT"):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "UAT Report"
     
-    ws.views.sheetView[0].showGridLines = True
+    # Remove default sheet so we can add custom named tabs dynamically
+    default_sheet = wb.active
+    
     font_family = "Calibri"
-    
     fill_dark_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     fill_table_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     
@@ -287,54 +286,89 @@ def generate_professional_report_excel(df_data, report_title="UAT FILTERED REPOR
     thin_side = Side(border_style="thin", color="BFBFBF")
     box_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 
-    max_col = max(len(df_data.columns), 8)
-    end_col_letter = get_column_letter(max_col)
+    if df_data.empty:
+        ws = wb.create_sheet(title="No Data")
+        ws['A1'] = "No test cases available for the selected filters."
+        wb.remove(default_sheet)
+        wb.save(output)
+        output.seek(0)
+        return output
 
-    ws.merge_cells(f'A1:{end_col_letter}1')
-    cell = ws['A1']
-    cell.value = f"PEOPLE'S BANK — {report_title}"
-    cell.font = font_title
-    cell.fill = fill_dark_header
-    cell.alignment = align_center
-    ws.row_dimensions[1].height = 30
+    # Group data by Category and Path Type to create separate tabs
+    group_cols = [c for c in ['Category', 'Path Type'] if c in df_data.columns]
+    
+    if group_cols:
+        grouped = df_data.groupby(group_cols)
+    else:
+        grouped = [("All_Data", df_data)]
 
-    ws['A2'] = f"Generated Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-    ws['A2'].font = font_regular
-    ws.row_dimensions[2].height = 18
+    for group_key, group_df in grouped:
+        if isinstance(group_key, tuple):
+            cat_name, path_name = group_key
+            sheet_name = f"{str(cat_name)[:15]} - {str(path_name)[:10]}"
+        else:
+            sheet_name = str(group_key)[:30]
+            
+        # Clean invalid characters for Excel sheet names (e.g., \, /, ?, *, [, ])
+        for char in ['\\', '/', '?', '*', '[', ']', ':']:
+            sheet_name = sheet_name.replace(char, '')
+            
+        ws = wb.create_sheet(title=sheet_name[:31])
+        ws.views.sheetView[0].showGridLines = True
+        
+        max_col = max(len(group_df.columns), 8)
+        end_col_letter = get_column_letter(max_col)
 
-    ws.row_dimensions[4].height = 25
-    headers = list(df_data.columns)
-    for col_idx, h_text in enumerate(headers, 1):
-        c = ws.cell(row=4, column=col_idx)
-        c.value = h_text
-        c.font = font_bold
-        c.fill = fill_table_header
-        c.alignment = align_center
-        c.border = box_border
+        # Title Banner
+        ws.merge_cells(f'A1:{end_col_letter}1')
+        cell = ws['A1']
+        cell.value = f"PEOPLE'S BANK — {report_title} ({sheet_name})"
+        cell.font = font_title
+        cell.fill = fill_dark_header
+        cell.alignment = align_center
+        ws.row_dimensions[1].height = 30
 
-    curr_row = 5
-    for _, r in df_data.iterrows():
-        ws.row_dimensions[curr_row].height = 24
-        for col_idx, col_name in enumerate(headers, 1):
-            val = r.get(col_name, '')
-            c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
-            c.font = font_regular
+        ws['A2'] = f"Generated Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        ws['A2'].font = font_regular
+        ws.row_dimensions[2].height = 18
+
+        ws.row_dimensions[4].height = 25
+        headers = list(group_df.columns)
+        for col_idx, h_text in enumerate(headers, 1):
+            c = ws.cell(row=4, column=col_idx)
+            c.value = h_text
+            c.font = font_bold
+            c.fill = fill_table_header
+            c.alignment = align_center
             c.border = box_border
-            if col_name in ['TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'Severity', 'Priority', 'Defect Status']:
-                c.alignment = align_center
-            else:
-                c.alignment = align_left
-        curr_row += 1
 
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.row >= 4:
-                val_str = str(cell.value or '')
-                if len(val_str) > max_len:
-                    max_len = len(val_str)
-        ws.column_dimensions[col_letter].width = max(min(max_len + 4, 40), 12)
+        curr_row = 5
+        for _, r in group_df.iterrows():
+            ws.row_dimensions[curr_row].height = 24
+            for col_idx, col_name in enumerate(headers, 1):
+                val = r.get(col_name, '')
+                c = ws.cell(row=curr_row, column=col_idx, value=str(val) if val is not None else '')
+                c.font = font_regular
+                c.border = box_border
+                if col_name in ['TC ID', 'Path Type', 'Status', 'Executed Date', 'RRN', 'Utano', 'Severity', 'Priority', 'Defect Status']:
+                    c.alignment = align_center
+                else:
+                    c.alignment = align_left
+            curr_row += 1
+
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.row >= 4:
+                    val_str = str(cell.value or '')
+                    if len(val_str) > max_len:
+                        max_len = len(val_str)
+            ws.column_dimensions[col_letter].width = max(min(max_len + 4, 40), 12)
+
+    # Remove the default blank sheet created by openpyxl
+    if default_sheet in wb.worksheets:
+        wb.remove(default_sheet)
 
     wb.save(output)
     output.seek(0)
