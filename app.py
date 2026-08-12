@@ -10,10 +10,6 @@ from openpyxl.utils import get_column_letter
 import psycopg2
 
 
-
-
-
-
 # ---------------------------------------------------------
 # POSTGRESQL / SUPABASE DATABASE CONNECTION
 # ---------------------------------------------------------
@@ -1683,6 +1679,10 @@ elif menu == "🛠️ Defect Tracker":
     else:
         defect_df = pd.DataFrame()
 
+    # --- SORT BY TC ID (Defect No.) LOGIC ---
+    if not defect_df.empty and 'TC ID' in defect_df.columns:
+        defect_df = defect_df.sort_values(by='TC ID', ascending=True).reset_index(drop=True)
+
     # --- DATE FILTER CONFIGURATION FOR DEFECTS ---
     if not defect_df.empty:
         st.markdown("#### 📅 Date Filter Configuration")
@@ -1784,7 +1784,7 @@ elif menu == "🛠️ Defect Tracker":
                     
                     col_a1, col_a2, col_a3 = st.columns(3)
                     with col_a1:
-                        adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V2'), key=f"orig_build_{d_key}")
+                        adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V1'), key=f"orig_build_{d_key}")
                         adm_cr_ref = st.text_input("CR Reference", value=row.get('CR Reference', ''), key=f"cr_ref_{d_key}")
                         adm_defect_cat = st.text_input("Defect Category", value=row.get('Defect Category', row.get('Category', '')), key=f"def_cat_{d_key}")
                     with col_a2:
@@ -1830,7 +1830,7 @@ elif menu == "🛠️ Defect Tracker":
                     curr_stat = row.get('Defect Status', 'Open')
                     if curr_stat not in stat_options: curr_stat = "Open"
                     
-                    assign_options = ["Development Team", "Tester", "Vendor (Hitachi)", "Network Team"]
+                    assign_options = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
                     curr_assign = row.get('Assigned To', 'Development Team')
                     if curr_assign not in assign_options: curr_assign = "Development Team"
 
