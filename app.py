@@ -294,26 +294,45 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
         output.seek(0)
         return output
 
-    # Group data by Category and Path Type to create separate tabs
-    group_cols = [c for c in ['Category', 'Path Type'] if c in df_data.columns]
+    # Group data by Category, Module Name, and Path Type for granular tabs
+    group_cols = [c for c in ['Category', 'Module Name', 'Path Type'] if c in df_data.columns]
     
-    if group_cols:
+    if len(group_cols) >= 3:
+        grouped = df_data.groupby(['Category', 'Module Name', 'Path Type'])
+    elif len(group_cols) >= 2:
         grouped = df_data.groupby(group_cols)
     else:
         grouped = [("All_Data", df_data)]
 
+    used_sheet_names = set()
+
     for group_key, group_df in grouped:
-        if isinstance(group_key, tuple):
-            cat_name, path_name = group_key
-            sheet_name = f"{str(cat_name)[:15]} - {str(path_name)[:10]}"
+        if isinstance(group_key, tuple) and len(group_key) == 3:
+            cat, mod, path = group_key
+            # Format: "Cash Deposit - Pos" or similar concise naming
+            path_short = "Pos" if str(path).lower().startswith("pos") else "Neg"
+            base_name = f"{str(mod)[:20]} - {path_short}"
+        elif isinstance(group_key, tuple) and len(group_key) == 2:
+            a, b = group_key
+            base_name = f"{str(a)[:15]} - {str(b)[:10]}"
         else:
-            sheet_name = str(group_key)[:30]
+            base_name = str(group_key)[:30]
             
-        # Clean invalid characters for Excel sheet names (e.g., \, /, ?, *, [, ])
+        # Clean invalid characters for Excel sheet names (\, /, ?, *, [, ], :)
         for char in ['\\', '/', '?', '*', '[', ']', ':']:
-            sheet_name = sheet_name.replace(char, '')
+            base_name = base_name.replace(char, '')
             
-        ws = wb.create_sheet(title=sheet_name[:31])
+        # Ensure sheet name is unique and under Excel's 31-character limit
+        final_name = base_name[:31]
+        counter = 1
+        while final_name in used_sheet_names:
+            suffix = f"_{counter}"
+            final_name = base_name[:31 - len(suffix)] + suffix
+            counter += 1
+            
+        used_sheet_names.add(final_name)
+        
+        ws = wb.create_sheet(title=final_name)
         ws.views.sheetView[0].showGridLines = True
         
         max_col = max(len(group_df.columns), 8)
@@ -322,7 +341,7 @@ def generate_professional_report_excel(df_data, report_title="UAT COMPLETED TEST
         # Title Banner
         ws.merge_cells(f'A1:{end_col_letter}1')
         cell = ws['A1']
-        cell.value = f"PEOPLE'S BANK — {report_title} ({sheet_name})"
+        cell.value = f"PEOPLE'S BANK — {report_title} ({final_name})"
         cell.font = font_title
         cell.fill = fill_dark_header
         cell.alignment = align_center
