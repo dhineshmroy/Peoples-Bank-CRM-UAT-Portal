@@ -76,7 +76,16 @@ def load_data_from_db():
                 "ASSIGNED_TO" as "Assigned To",
                 "TARGET_DATE" as "Target Date",
                 "ROOT_CAUSE" as "Root Cause",
-                "DEFECT_DESCRIPTION" as "Defect Description"
+                "DEFECT_DESCRIPTION" as "Defect Description",
+                "ORIGIN_BUILD" as "Origin (Build)",
+                "CR_REFERENCE" as "CR Reference",
+                "DEFECT_CATEGORY" as "Defect Category",
+                "FIXING_DATE" as "Fixing Date",
+                "CLOSED_BY" as "Closed By",
+                "DATE_CLOSURE" as "Date of Closure",
+                "COMMENTS" as "Comments",
+                "DATE_DEFECT_ORIGIN" as "Date of Defect Origin",
+                "DETECTED_BY" as "Detected By"
             FROM uat_test_cases_v2
         """
         df = pd.read_sql(query, con=conn)
@@ -357,18 +366,15 @@ def generate_official_defect_register_excel(defect_df):
     ws = wb.active
     ws.title = "Defect Tracking Register"
     
-    # Ensure grid lines are visible
     ws.views.sheetView[0].showGridLines = True
     font_family = "Calibri"
     
-    # --- Professional Palette (People's Bank Corporate Theme) ---
-    fill_main_banner = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")  # Deep Navy Blue
-    fill_section_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid") # Soft Ice Blue
-    fill_label_cell = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")     # Light Warm Gray
-    fill_table_header = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")   # Professional Table Blue
-    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")         # Very soft tint for zebra striping
+    fill_main_banner = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    fill_section_header = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    fill_label_cell = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    fill_table_header = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
+    fill_row_alt = PatternFill(start_color="F9FBFD", end_color="F9FBFD", fill_type="solid")
     
-    # Fonts
     font_banner_title = Font(name=font_family, size=13, bold=True, color="FFFFFF")
     font_section = Font(name=font_family, size=10, bold=True, color="1F4E78")
     font_bold = Font(name=font_family, size=10, bold=True, color="000000")
@@ -376,17 +382,13 @@ def generate_official_defect_register_excel(defect_df):
     font_table_hdr = Font(name=font_family, size=10, bold=True, color="FFFFFF")
     font_meta = Font(name=font_family, size=9, bold=True, color="595959")
     
-    # Alignments & Borders
     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     align_right = Alignment(horizontal="right", vertical="center", wrap_text=True)
     
     thin_border_side = Side(border_style="thin", color="BFBFBF")
     box_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
-    
-    thick_bottom = Border(bottom=Side(border_style="medium", color="1F4E78"))
 
-    # --- TOP METADATA ---
     ws['P1'] = "IT-TMP-027-Defect Tracking Register Template"
     ws['P1'].font = font_meta
     ws['P1'].alignment = align_right
@@ -397,7 +399,6 @@ def generate_official_defect_register_excel(defect_df):
     ws['P3'].font = font_meta
     ws['P3'].alignment = align_right
 
-    # --- MAIN TITLE BANNER ---
     ws.merge_cells('E2:K2')
     cell = ws['E2']
     cell.value = "UAT DEFECT TRACKING REGISTER"
@@ -415,7 +416,6 @@ def generate_official_defect_register_excel(defect_df):
     ws['P4'] = datetime.today().strftime('%d/%m/%Y')
     ws['P4'].font = font_regular
 
-    # --- PART 1: PROJECT INFORMATION ---
     ws.merge_cells('A6:S6')
     sec_cell = ws['A6']
     sec_cell.value = "   PART 1: PROJECT INFORMATION"
@@ -424,12 +424,10 @@ def generate_official_defect_register_excel(defect_df):
     sec_cell.alignment = align_left
     ws.row_dimensions[6].height = 22
 
-    # Row 7: Program Info
     ws['A7'] = "Program Name"
     ws['A7'].font = font_bold
     ws['A7'].fill = fill_label_cell
     ws['A7'].border = box_border
-    
     ws.merge_cells('B7:I7')
     ws['B7'] = "GRG CRM Banking Solution"
     ws['B7'].font = font_regular
@@ -449,12 +447,10 @@ def generate_official_defect_register_excel(defect_df):
     ws.merge_cells('N7:S7')
     ws['N7'].border = box_border
 
-    # Row 8: Project Name Info
     ws['A8'] = "Project Name"
     ws['A8'].font = font_bold
     ws['A8'].fill = fill_label_cell
     ws['A8'].border = box_border
-    
     ws.merge_cells('B8:I8')
     ws['B8'] = "People's Bank CRM Testing & Integration"
     ws['B8'].font = font_regular
@@ -474,12 +470,10 @@ def generate_official_defect_register_excel(defect_df):
     ws.merge_cells('N8:S8')
     ws['N8'].border = box_border
 
-    # Row 9: Sponsor Info
     ws['A9'] = "Project Sponsor"
     ws['A9'].font = font_bold
     ws['A9'].fill = fill_label_cell
     ws['A9'].border = box_border
-    
     ws.merge_cells('B9:I9')
     ws['B9'] = "People's Bank IT Department"
     ws['B9'].font = font_regular
@@ -502,7 +496,6 @@ def generate_official_defect_register_excel(defect_df):
     for r_idx in range(7, 10):
         ws.row_dimensions[r_idx].height = 20
 
-    # --- PART 2: DEFECTS TABLE HEADERS ---
     ws.merge_cells('A11:U11')
     def_sec = ws['A11']
     def_sec.value = "   PART 2: DEFECTS"
@@ -528,24 +521,15 @@ def generate_official_defect_register_excel(defect_df):
         c.alignment = align_center
         c.border = box_border
 
-    # --- POPULATE DEFECT ROWS WITH ZEBRA STRIPING ---
     curr_row = 13
     if not defect_df.empty:
         for idx, (_, r) in enumerate(defect_df.iterrows()):
             ws.row_dimensions[curr_row].height = 24
             
-            # Fallbacks for empty descriptions
-            desc_val = r.get("Defect Description", "")
-            if not desc_val or str(desc_val).strip() in ["", "nan", "None"]:
-                desc_val = r.get("Test Case Description", "Defect found during test execution")
-
-            steps_val = r.get("Test Steps", "")
-            if not steps_val or str(steps_val).strip() in ["", "nan", "None"]:
-                steps_val = r.get("Steps to Reproduce", "Refer to system test case specification")
-
-            exp_val = r.get("Expected Result", "")
-            if not exp_val or str(exp_val).strip() in ["", "nan", "None"]:
-                exp_val = r.get("Expected Results", "System should process successfully without errors")
+            # Fetch updated values directly from row with fallback to defaults
+            desc_val = r.get("Defect Description") if str(r.get("Defect Description", "")).strip() else r.get("Test Case Description", "")
+            steps_val = r.get("Test Steps", "") if str(r.get("Test Steps", "")).strip() else "Refer to system test case specification"
+            exp_val = r.get("Expected Result", "") if str(r.get("Expected Result", "")).strip() else "System should process successfully without errors"
 
             row_data = [
                 r.get("Origin (Build)", "CRM V1"),
@@ -556,7 +540,7 @@ def generate_official_defect_register_excel(defect_df):
                 safe_basename(r.get("Photo_Path", r.get("Receipt_Path", ""))),
                 r.get("CR Reference", ""),
                 r.get("Module Name", ""),
-                r.get("Category", ""),
+                r.get("Defect Category", r.get("Category", "")),
                 r.get("Severity", ""),
                 r.get("Priority", ""),
                 r.get("Defect Status", ""),
@@ -571,7 +555,6 @@ def generate_official_defect_register_excel(defect_df):
                 r.get("Comments", r.get("Remarks", ""))
             ]
             
-            # Apply alternating row fill colors (zebra striping)
             row_fill = fill_row_alt if idx % 2 == 1 else PatternFill(fill_type=None)
 
             for col_idx, val in enumerate(row_data, 1):
@@ -579,16 +562,14 @@ def generate_official_defect_register_excel(defect_df):
                 c.font = font_regular
                 c.border = box_border
                 c.fill = row_fill
-                # Left align descriptive columns, center everything else
                 c.alignment = align_left if col_idx in [3, 4, 5, 21] else align_center
             curr_row += 1
 
-    # --- AUTO-FIT COLUMN WIDTHS NICELY ---
     for col in ws.columns:
         max_len = 0
         col_letter = openpyxl.utils.get_column_letter(col[0].column)
         for cell in col:
-            if cell.row < 12: # Skip header/banner rows for width calculation to prevent giant columns
+            if cell.row < 12:
                 continue
             try:
                 if cell.value:
@@ -598,13 +579,11 @@ def generate_official_defect_register_excel(defect_df):
                             max_len = len(str(line))
             except:
                 pass
-        # Set a professional bound (minimum width 15, maximum width 45 for text wrapping)
         ws.column_dimensions[col_letter].width = max(min(max_len + 4, 45), 15)
 
     wb.save(output)
     output.seek(0)
     return output
-
 
 
 
