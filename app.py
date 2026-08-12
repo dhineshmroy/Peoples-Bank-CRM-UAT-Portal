@@ -171,7 +171,7 @@ def save_test_case_to_db(tc_id, module_name, status, actual_result, fe, sibs, ut
     cursor.close()
     conn.close()
 
-def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_result, executed_by, utano, fe, sibs, severity, priority, defect_status, assigned_to, target_date, root_cause, origin_build, defect_desc, defect_steps, defect_expected, defect_attachment, cr_ref, defect_cat, expected_date_closure, fixing_date, closed_by, date_closure, comments, date_defect_origin, detected_by):
+def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_result, executed_by, utano, fe, sibs, severity, priority, defect_status, assigned_to, target_date, root_cause, defect_desc=""):
     conn = get_db_connection()
     if not conn:
         return
@@ -192,33 +192,22 @@ def admin_update_full_defect_details(tc_id, module_name, test_steps, actual_resu
     c_target = clean_val(target_date)
     c_root = clean_val(root_cause)
     c_def_desc = clean_val(defect_desc)
-    c_cr_ref = clean_val(cr_ref)
-    c_def_cat = clean_val(defect_cat)
-    c_fixing_date = clean_val(fixing_date)
-    c_closed_by = clean_val(closed_by)
-    c_date_closure = clean_val(date_closure)
-    c_comments = clean_val(comments)
-    c_detected_by = clean_val(detected_by)
 
     try:
         cursor.execute("""
             UPDATE uat_test_cases_v2 
             SET "TEST_STEPS" = %s, "ACTUAL_RESULT" = %s, "EXECUTED_BY" = %s, "UTANO" = %s, "RRN" = %s, 
                 "FE" = %s, "SIBS" = %s, "SEVERITY" = %s, "PRIORITY" = %s, "DEFECT_STATUS" = %s, 
-                "ASSIGNED_TO" = %s, "TARGET_DATE" = %s, "ROOT_CAUSE" = %s, "DEFECT_DESCRIPTION" = %s,
-                "CR_REFERENCE" = %s, "DEFECT_CATEGORY" = %s, "FIXING_DATE" = %s, "CLOSED_BY" = %s,
-                "DATE_CLOSURE" = %s, "COMMENTS" = %s, "DETECTED_BY" = %s
+                "ASSIGNED_TO" = %s, "TARGET_DATE" = %s, "ROOT_CAUSE" = %s, "DEFECT_DESCRIPTION" = %s
             WHERE "TC_ID" = %s AND "MODULE_NAME" = %s
         """, (c_steps, c_act, c_exec_by, c_utano, c_rrn, c_fe, c_sibs, c_sev, c_pri, c_def_status, 
-              c_assigned, c_target, c_root, c_def_desc, c_cr_ref, c_def_cat, c_fixing_date, 
-              c_closed_by, c_date_closure, c_comments, c_detected_by, tc_id, module_name))
+              c_assigned, c_target, c_root, c_def_desc, tc_id, module_name))
         conn.commit()
     except Exception as e:
         st.error(f"Database error updating defect details: {e}")
     cursor.close()
     conn.close()
     
-    # Clear cache so Streamlit reloads fresh data from the database immediately
     if hasattr(st, "cache_data"):
         st.cache_data.clear()
 
@@ -1850,11 +1839,7 @@ elif menu == "🛠️ Defect Tracker":
                                 tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
                                 fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
                                 assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
-                                origin_build=adm_origin_build, defect_desc=adm_def_desc, defect_steps=adm_steps,
-                                defect_expected=adm_expected, defect_attachment=safe_basename(row.get('Photo_Path', row.get('Receipt_Path', ''))),
-                                cr_ref=adm_cr_ref, defect_cat=adm_defect_cat, expected_date_closure=adm_target_date,
-                                fixing_date=adm_fixing_date, closed_by=adm_closed_by, date_closure=adm_date_closure,
-                                comments=adm_comments, date_defect_origin=adm_date_origin, detected_by=adm_detected_by
+                                defect_desc=adm_def_desc
                             )
                             st.success(f"Defect report updated successfully for {tc_id}!")
                             st.rerun()
