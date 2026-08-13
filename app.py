@@ -1314,13 +1314,13 @@ if st.session_state.authenticated_role is None:
         else:
             st.sidebar.error("Invalid Username or Password")
     
-    st.sidebar.info("""
-    **Roles & Demo Credentials:**
-    * **Admin/Manager:** `admin` / `admin123`
-    * **Tester:** `tester` / `tester123`
-    * **Developer:** `developer` / `dev123`
-    * **QA Engineer:** `qa` / `qa123`
-    """)
+    # st.sidebar.info("""
+    # **Roles & Demo Credentials:**
+    # * **Admin/Manager:** `admin` / `admin123`
+    # * **Tester:** `tester` / `tester123`
+    # * **Developer:** `developer` / `dev123`
+    # * **QA Engineer:** `qa` / `qa123`
+    # """)
     menu = "📊 Live Dashboard"
 else:
     st.sidebar.success(f"👤 **{st.session_state.logged_user}**\n\nRole: `{st.session_state.authenticated_role}`")
