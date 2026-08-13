@@ -1,0 +1,6 @@
+SLIC LIFE Functions - Positive Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_SLIC_P_01_001,SLIC Life Insurance Payment,Verify that a user can successfully process a positive cash deposit for an SLIC Life Insurance policy using a card.,"1. CRM is online and functional.
+2. User has a valid card and correct PIN.
+3. Active Life Insurance customer reference number.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select Life Insurance > Enter Customer Reference Number > Enter Amount > Select Account > Confirm Bill Payment > Take Receipt & Card,"Transaction is successfully processed, funds are debited/accepted, confirmation screen is shown, and receipt is printed.",,,,,,,,

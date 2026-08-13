@@ -1,0 +1,8 @@
+Other Bank Card Functions - Positive Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_CW_OBC_P_01_001,Successful Cash Withdrawal (Savings),Verify that a user can successfully withdraw cash from a Savings account using a valid card and PIN.,"
+1. ATM/Kiosk is online.
+2. User has a valid card, sufficient account balance, and correct PIN.
+","Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Savings Account > Enter valid amount (e.g., Rs. 5,000) > Select Receipt Option > Take Cash > Take Receipt & Card","Transaction is approved, cash is dispensed, receipt is printed, and card is returned successfully.",,,,,,,,
+TC_CB_CW_OBC_P_01_002,Successful Cash Withdrawal (Current),Verify that a user can successfully withdraw cash from a Current account using a valid card and PIN.,"1. ATM/Kiosk is online.
+2. User has a valid card, sufficient funds in Current account, and correct PIN.","Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Current Account > Enter valid amount (e.g., Rs. 10,000) > Select Receipt Option > Take Cash > Take Receipt & Card","Transaction is processed successfully, cash is dispensed, and physical/digital receipt is provided.",,,,,,,,

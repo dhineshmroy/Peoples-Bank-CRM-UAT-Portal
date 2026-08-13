@@ -1,0 +1,6 @@
+SLIC GENERAL Functions - Positive Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_SLIC_GEN_P_01_001,General Insurance Payment,Verify that a user can successfully process a positive cash deposit for an SLIC General Insurance policy using a card.,"1. CRM is online and functional.
+2. User has a valid card and correct PIN.
+3. Active General Insurance customer reference number.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select General Insurance > Enter Customer Reference Number > Enter Amount > Select Account > Confirm Bill Payment > Take Receipt & Card,"Transaction is successfully processed, confirmation is displayed, and receipt containing correct General Insurance details is printed.",,,,,,,,

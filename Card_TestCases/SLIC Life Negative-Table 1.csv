@@ -1,0 +1,8 @@
+SLIC LIFE Card Functions - Negative Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_SLIC_N_01_001,Invalid Life Insurance Customer Ref,Verify system behavior when an invalid or non-existent SLIC Life Insurance customer reference number is entered.,"1. CRM is online and functional.
+2. User is authenticated with a valid card and PIN.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select Life Insurance > Enter Invalid Customer Reference Number > Enter Amount > Select Account > Confirm Bill Payment,"System displays an error message (e.g., ""Invalid Customer Reference"") and blocks the transaction from completing.",,,,,,,,
+TC_CB_SLIC_N_01_002,Invalid Life Insurance Amount Entry,Verify that the system rejects zero or negative amounts entered for an SLIC Life Insurance payment.,"1. Kiosk is online and functional.
+2. User has entered a valid Life Insurance customer reference.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select Life Insurance > Enter Customer Reference Number > Enter Amount (0.00 or negative) > Proceed,"System blocks the transaction flow, triggers an invalid amount error message, and prompts for re-entry.",,,,,,,,

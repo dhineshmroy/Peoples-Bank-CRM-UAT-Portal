@@ -1,0 +1,8 @@
+SLIC GENERAL Functions - Negative Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_SLIC_GEN_N_01_001,Invalid General Insurance Customer Ref,Verify system behavior when an invalid or non-existent SLIC General Insurance customer reference number is entered.,"1. CRM is online and functional.
+2. User is authenticated with a valid card and PIN.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select General Insurance > Enter Invalid Customer Reference Number > Enter Amount > Select Account > Confirm Bill Payment,"System displays an error message (e.g., ""Invalid Customer Reference"") and prevents proceeding to confirmation.",,,,,,,,
+TC_CB_SLIC_GEN_N_01_002,Insufficient Funds for General Insurance,Verify that the transaction is declined when the selected account has insufficient funds during a General Insurance payment.,"1. CRM is online and functional.
+2. User account balance is lower than the bill amount.
+",Insert Card > Select Language > Enter valid PIN > Select Bill Payment > Select SLIC > Select General Insurance > Enter Customer Reference Number > Enter Amount > Select Account with low balance > Confirm Bill Payment,"Transaction is declined, an ""Insufficient Funds"" error message is displayed, and no receipt is printed.",,,,,,,,

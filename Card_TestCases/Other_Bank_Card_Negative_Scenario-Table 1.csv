@@ -1,0 +1,9 @@
+Other Bank Card Functions - Negative Scenarios,,,,,,,,,,,,,
+TC ID,Test Area,Test Case Description,Pre-Conditions,Test Steps,Expected Result,Actual Result,RRN,Utano,PIC Status,PLC Status,FE,SIBS,Remarks
+TC_CB_CW_OBC_N_01_001,Invalid PIN Entry,Verify the system response when an incorrect PIN is entered during a cash withdrawal.,"1. ATM is online.
+2. User has a valid card.",Insert Card > Select Language > Enter invalid PIN > Select Withdrawal,"The system displays an incorrect PIN error message, denies access, and prompts the user to retry or retains the card after maximum attempts.",,,,,,,,
+TC_CB_CW_OBC_N_01_002,Insufficient Funds,Verify that the system blocks a cash withdrawal when the requested amount exceeds the account balance.,"1. ATM is online.
+2. User account has a low balance (e.g., Rs. 500).","Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Account > Enter high amount (e.g., Rs. 50,000) > Confirm","The transaction is declined, an ""Insufficient Funds"" error message is shown, and no cash is dispensed.",,,,,,,,
+TC_CB_CW_OBC_N_01_003,Exceeding Daily Withdrawal Limit,Verify the system blocks withdrawals that exceed the card's permitted daily transaction limit.,"1. ATM is online.
+2. User has already reached their daily withdrawal limit.",Insert Card > Select Language > Enter valid PIN > Select Withdrawal > Select Account > Enter amount exceeding limit > Confirm,"The transaction is rejected with a limit exceeded notification message, and no cash is dispensed.",,,,,,,,
+TC_CB_CW_OBC_N_01_004,,,,,,,,,,,,,
