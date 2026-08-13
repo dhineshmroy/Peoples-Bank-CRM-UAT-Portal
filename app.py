@@ -1223,34 +1223,45 @@ st.markdown("""
 
 st.markdown("""
     <style>
-        /* Make main content container full-width on mobile */
+        /* Main mobile responsiveness container adjustments */
         .main .block-container {
             padding-left: 1rem;
             padding-right: 1rem;
-            padding-top: 2rem;
+            padding-top: 1.5rem;
             max-width: 100%;
         }
         
-        /* Ensure dataframes and tables scroll smoothly horizontally on mobile */
-        .stDataFrame {
+        /* Make header cards stack nicely and scale on mobile screens */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.5rem !important;
+            }
+            h3 {
+                font-size: 1.1rem !important;
+            }
+            /* Stack columns on mobile */
+            [data-testid="column"] {
+                width: 100% !important;
+                flex: 100% !important;
+                min-width: 100% !important;
+            }
+        }
+
+        /* Footer styling */
+        .footer {
+            position: relative;
             width: 100%;
-            overflow-x: auto;
+            text-align: center;
+            padding: 20px 0;
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 0.9rem;
+            color: #555555;
+            border-top: 1px solid #EAEAEA;
+            margin-top: 40px;
         }
-
-        /* Make buttons and selectboxes expand nicely */
-        .stButton button, .stDownloadButton button {
-            width: 100%;
-        }
-
-        /* Optimize metrics cards for mobile screens */
-        [data-testid="stMetricValue"] {
-            font-size: 1.5rem !important;
-        }
-
-        /* Prevent text wrapping issues in expanders */
-        .streamlit-expanderHeader {
-            font-size: 0.95rem !important;
-        }
+        
+        .stDataFrame { width: 100%; overflow-x: auto; }
+        .stButton button, .stDownloadButton button { width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -2214,3 +2225,10 @@ elif menu == "📄 Reports":
         use_container_width=True,
         disabled=not can_report
     )
+
+# --- FOOTER ---
+st.markdown("""
+    <div class="footer">
+        PEOPLE'S BANK — GRG CRM UAT PORTAL &nbsp;|&nbsp; Developed by <b>Dhinesh Melroy - IT Graduate Trainee(Channel_Department)</b>
+    </div>
+""", unsafe_allow_html=True)
