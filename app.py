@@ -1219,6 +1219,41 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+
+st.markdown("""
+    <style>
+        /* Make main content container full-width on mobile */
+        .main .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-top: 2rem;
+            max-width: 100%;
+        }
+        
+        /* Ensure dataframes and tables scroll smoothly horizontally on mobile */
+        .stDataFrame {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        /* Make buttons and selectboxes expand nicely */
+        .stButton button, .stDownloadButton button {
+            width: 100%;
+        }
+
+        /* Optimize metrics cards for mobile screens */
+        [data-testid="stMetricValue"] {
+            font-size: 1.5rem !important;
+        }
+
+        /* Prevent text wrapping issues in expanders */
+        .streamlit-expanderHeader {
+            font-size: 0.95rem !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # ---------------------------------------------------------
 # SESSION STATE & DB DATA
 # ---------------------------------------------------------
