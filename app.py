@@ -1242,9 +1242,19 @@ st.markdown("""
             }
         }
 
-        /* Clean static footer that stays at the bottom of the page flow */
+        /* Make the main page container a flex container to lock the footer at the bottom */
+        .stApp {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        
+        .main {
+            flex: 1;
+        }
+
+        /* Static, non-floating footer that rests naturally below content */
         .custom-footer {
-            position: static !important;
             width: 100%;
             text-align: center;
             padding: 20px 0;
@@ -1252,13 +1262,14 @@ st.markdown("""
             font-size: 0.9rem;
             color: #555555;
             border-top: 1px solid #EAEAEA;
-            margin-top: 40px;
+            margin-top: auto;
+            background-color: inherit;
         }
         
         .stDataFrame { width: 100%; overflow-x: auto; }
         .stButton button, .stDownloadButton button { width: 100%; }
     </style>
-""", unsafe_allow_html=True,)
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # SESSION STATE & DB DATA
@@ -2224,6 +2235,6 @@ elif menu == "📄 Reports":
 # --- FOOTER ---
 st.markdown("""
     <div class="custom-footer">
-        PEOPLE'S BANK — GRG CRM UAT PORTAL &nbsp;|&nbsp; Developed by <b>Devasagayam Dhinesh Melroy</b>
+        PEOPLE'S BANK — GRG CRM UAT PORTAL &nbsp;|&nbsp; Developed by <b>Dhinesh Melroy - IT Graduate Trainee(Channel_Department)</b>
     </div>
 """, unsafe_allow_html=True)
