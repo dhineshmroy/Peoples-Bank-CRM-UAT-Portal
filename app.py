@@ -1223,33 +1223,28 @@ st.markdown("""
 
 st.markdown("""
     <style>
-        /* Main mobile responsiveness container adjustments */
-        .main .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-            padding-top: 1.5rem;
-            max-width: 100%;
-        }
-        
-        /* Make header cards stack nicely and scale on mobile screens */
+        /* Force Streamlit columns to stack vertically on mobile screens */
         @media (max-width: 768px) {
-            h1 {
-                font-size: 1.5rem !important;
+            [data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
             }
-            h3 {
-                font-size: 1.1rem !important;
-            }
-            /* Stack columns on mobile */
             [data-testid="column"] {
                 width: 100% !important;
-                flex: 100% !important;
-                min-width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: auto !important;
+                margin-bottom: 0.5rem !important;
+            }
+            h1 {
+                font-size: 1.4rem !important;
+            }
+            p, span {
+                font-size: 0.95rem !important;
             }
         }
 
-        /* Footer styling */
-        .footer {
-            position: relative;
+        /* Clean static footer that stays at the bottom of the page flow */
+        .custom-footer {
+            position: static !important;
             width: 100%;
             text-align: center;
             padding: 20px 0;
@@ -1263,7 +1258,7 @@ st.markdown("""
         .stDataFrame { width: 100%; overflow-x: auto; }
         .stButton button, .stDownloadButton button { width: 100%; }
     </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True,)
 
 # ---------------------------------------------------------
 # SESSION STATE & DB DATA
@@ -2228,7 +2223,7 @@ elif menu == "📄 Reports":
 
 # --- FOOTER ---
 st.markdown("""
-    <div class="footer">
-        PEOPLE'S BANK — GRG CRM UAT PORTAL &nbsp;|&nbsp; Developed by <b>Dhinesh Melroy - IT Graduate Trainee(Channel_Department)</b>
+    <div class="custom-footer">
+        PEOPLE'S BANK — GRG CRM UAT PORTAL &nbsp;|&nbsp; Developed by <b>Devasagayam Dhinesh Melroy</b>
     </div>
 """, unsafe_allow_html=True)
