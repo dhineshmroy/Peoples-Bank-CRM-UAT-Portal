@@ -49,43 +49,33 @@ def load_data_from_db():
     
     try:
         query = """
-            SELECT 
-                "TC_ID" as "TC ID", 
-                "CATEGORY" as "Category",
-                "MODULE_NAME" as "Module Name", 
-                "TEST_AREA" as "Test Area", 
-                "TEST_CASE_DESCRIPTION" as "Test Case Description", 
-                "PRE_CONDITIONS" as "Pre-Conditions",
-                "TEST_STEPS" as "Test Steps", 
-                "EXPECTED_RESULT" as "Expected Result", 
-                "PATH_TYPE" as "Path Type", 
-                "ACTUAL_RESULT" as "Actual Result", 
-                "RRN" as "RRN",
-                "UTANO" as "Utano", 
-                "STATUS" as "Status", 
-                "FE" as "FE", 
-                "SIBS" as "SIBS",
-                "REMARKS" as "Remarks", 
-                "EXECUTED_BY" as "Executed By", 
-                "EXECUTED_DATE" as "Executed Date", 
-                "RECEIPT_PATH" as "Receipt_Path",
-                "PHOTO_PATH" as "Photo_Path",
-                "SEVERITY" as "Severity",
-                "PRIORITY" as "Priority",
-                "DEFECT_STATUS" as "Defect Status",
-                "ASSIGNED_TO" as "Assigned To",
-                "TARGET_DATE" as "Target Date",
-                "ROOT_CAUSE" as "Root Cause",
-                "DEFECT_DESCRIPTION" as "Defect Description"
-            FROM uat_test_cases_v2
+        SELECT 
+            "TC_ID" as "TC ID", 
+            "Category" as "Category",
+            "Module Name" as "Module Name", 
+            "Path Type" as "Path Type", 
+            "Test Case Description" as "Test Case Description", 
+            "Expected Result" as "Expected Result", 
+            "Actual Result" as "Actual Result", 
+            "Status" as "Status",
+            "Machine Type" as "Machine Type",
+            "Target Department" as "Target Department",
+            "Maker-Checker Status" as "Maker-Checker Status",
+            "Checker By" as "Checker By",
+            "rrn" as "RRN",
+            "utano" as "Utano", 
+            "fe" as "FE", 
+            "sibs" as "SIBS",
+            "severity" as "Severity",
+            "priority" as "Priority",
+            "defect_status" as "Defect Status"
+        FROM public.uat_test_cases_v2
         """
         df = pd.read_sql(query, con=conn)
         conn.close()
         df = df.fillna("")
         return df
     except Exception as e:
-        if conn:
-            conn.close()
         st.error(f"Error loading data from PostgreSQL: {e}")
         return pd.DataFrame()
 
