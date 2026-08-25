@@ -22,6 +22,67 @@ def get_db_connection():
         st.error(f"PostgreSQL Connection Failed: {e}")
         return None
 
+
+# --- 2. AUTHENTICATION & LOGIN SCREEN ---
+def render_login_screen():
+    st.markdown("## 🔐 People's Bank CRM UAT Portal - Login")
+    st.markdown("Please sign in with your assigned staff credentials.")
+    
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button("Login")
+        
+        if submit_button:
+            conn = get_db_connection()
+            if conn:
+                try:
+                    cursor = conn.cursor()
+                    # Query user from the new users table
+                    cursor.execute(
+                        'SELECT username, password_hash, full_name, department, role FROM public.users WHERE username = %s',
+                        (username,)
+                    )
+                    user = cursor.fetchone()
+                    cursor.close()
+                    conn.close()
+                    
+                    if user and user[1] == password: # (Note: in production you'd use password hashing, keeping it simple for local setup)
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = user[0]
+                        st.session_state["full_name"] = user[2]
+                        st.session_state["department"] = user[3]
+                        st.session_state["role"] = user[4]
+                        st.success(f"Welcome back, {user[2]}!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password.")
+                except Exception as e:
+                    st.error(f"Database error during login: {e}")
+
+# --- 3. MAIN APP ROUTING WRAPPER ---
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    render_login_screen()
+else:
+    # --- USER SESSION ACTIVE: DISPLAY SIDEBAR INFO & APP CONTENT ---
+    st.sidebar.markdown(f"**User:** {st.session_state['full_name']}")
+    st.sidebar.markdown(f"**Department:** {st.session_state['department']}")
+    st.sidebar.markdown(f"**Role:** {st.session_state['role']}")
+    
+    if st.sidebar.button("Logout"):
+        st.session_state["logged_in"] = False
+        st.rerun()
+        
+    st.sidebar.divider()
+
+    # 👉 [YOUR EXISTING APP CODE GOES HERE]
+    # All your current dashboard features, filters, and tables will run inside this block
+    st.title("Welcome to the UAT Dashboard")
+    st.info("You are successfully authenticated and ready to build Step 3 (Task Assignment & Vendor Filtering).")
+
 # Page Configuration
 st.set_page_config(
     page_title="People's Bank | GRG CRM UAT Portal",
