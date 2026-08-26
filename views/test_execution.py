@@ -3,6 +3,19 @@ import pandas as pd
 import io
 import psycopg2
 from datetime import datetime
+import sys
+import os
+
+# Add the parent directory (uat_portal root) to Python's system path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import streamlit as str  # (or import streamlit as st)
+import pandas as pd
+import io
+import psycopg2
+from datetime import datetime
+
+
 from config import get_db_url
 
 def render_test_execution_page():
