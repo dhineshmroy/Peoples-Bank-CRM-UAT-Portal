@@ -3,20 +3,18 @@ import pandas as pd
 import io
 import psycopg2
 from datetime import datetime
-import sys
-import os
 
-# Add the parent directory (uat_portal root) to Python's system path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import streamlit as str  # (or import streamlit as st)
-import pandas as pd
-import io
-import psycopg2
-from datetime import datetime
-
-
-from config import get_db_url
+# ---------------------------------------------------------
+# POSTGRESQL / SUPABASE DATABASE CONNECTION
+# ---------------------------------------------------------
+def get_db_connection():
+    try:
+        db_url = st.secrets["postgres"]["url"]
+        conn = psycopg2.connect(db_url)
+        return conn
+    except Exception as e:
+        st.error(f"PostgreSQL Connection Failed: {e}")
+        return None
 
 def render_test_execution_page():
     st.title("💳 GRG CRM - Automated Test Execution & Finance Export")
@@ -101,22 +99,23 @@ def render_test_execution_page():
         submit_btn = st.form_submit_button("💾 Save Test Execution Record")
         
         if submit_btn:
-            try:
-                conn = psycopg2.connect(get_db_url())
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO uat_test_executions 
-                    (module_name, tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, 
-                     fe_status, sibs_status, overall_status, tester_remarks, executed_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (selected_module, tc_id, test_desc, rrn, stan, txn_amount, service_charge,
-                      fe_status, sibs_status, "PASS" if fe_status=="SUCCESS" else "FAIL", remarks, "Current Tester"))
-                conn.commit()
-                cur.close()
-                conn.close()
-                st.success(f"Test case {tc_id} recorded successfully!")
-            except Exception as e:
-                st.error(f"Database save error (Check if table exists): {e}")
+            conn = get_db_connection()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO uat_test_executions 
+                        (module_name, tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, 
+                         fe_status, sibs_status, overall_status, tester_remarks, executed_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (selected_module, tc_id, test_desc, rrn, stan, txn_amount, service_charge,
+                          fe_status, sibs_status, "PASS" if fe_status=="SUCCESS" else "FAIL", remarks, st.session_state.get("logged_user", "Tester")))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                    st.success(f"Test case {tc_id} recorded successfully to Supabase!")
+                except Exception as e:
+                    st.error(f"Database save error (Check if table `uat_test_executions` exists in Supabase): {e}")
 
     st.markdown("---")
     st.subheader("📊 Export Multi-Tab Report for Finance Department")
@@ -125,18 +124,20 @@ def render_test_execution_page():
     if st.button("📥 Generate & Download Finance Excel Report"):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Fetch data from DB or fallback to default templates if empty
-            try:
-                conn = psycopg2.connect(get_db_url())
-                for mod_name, cols in modules.items():
-                    df_mod = pd.read_sql(f"SELECT tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, fe_status, sibs_status, overall_status, tester_remarks FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
-                    if df_mod.empty:
-                        # Create empty template placeholder row matching original format
-                        df_mod = pd.DataFrame(columns=cols)
-                    df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False)
-                conn.close()
-            except Exception:
-                # Fallback blank template sheets if DB table isn't created yet
+            conn = get_db_connection()
+            if conn:
+                try:
+                    for mod_name, cols in modules.items():
+                        df_mod = pd.read_sql(f"SELECT tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, fe_status, sibs_status, overall_status, tester_remarks FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
+                        if df_mod.empty:
+                            df_mod = pd.DataFrame(columns=cols)
+                        df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False)
+                    conn.close()
+                except Exception:
+                    for mod_name, cols in modules.items():
+                        df_blank = pd.DataFrame(columns=cols)
+                        df_blank.to_excel(writer, sheet_name=mod_name[:31], index=False)
+            else:
                 for mod_name, cols in modules.items():
                     df_blank = pd.DataFrame(columns=cols)
                     df_blank.to_excel(writer, sheet_name=mod_name[:31], index=False)
