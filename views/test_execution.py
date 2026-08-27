@@ -426,7 +426,7 @@ def render_test_execution_page():
                     st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (FULL CODE)
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (FULLY DYNAMIC LABELS)
     # -------------------------------------------------------------------------
     with tab_cash:
         st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
@@ -440,29 +440,33 @@ def render_test_execution_page():
         # -----------------------------------------------------------------
         with cash_sub_tab1:
             st.markdown("### Record Cash Loading (1st up to 10th)")
-            with st.form("cash_loading_form_unique_v2"):
-                c_col1, c_col2 = st.columns(2)
-                with c_col1:
-                    terminal_id_load = st.text_input("Terminal ID", value="S169RB02", key="load_term_id_v2")
-                    report_date_load = st.date_input("Report Date", value=datetime.today(), key="load_rep_date_v2")
-                    loading_session = st.selectbox(
-                        "Select Loading Session", 
-                        [
-                            "1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", 
-                            "4th Cash Loading", "5th Cash Loading", "6th Cash Loading", 
-                            "7th Cash Loading", "8th Cash Loading", "9th Cash Loading", 
-                            "10th Cash Loading"
-                        ],
-                        key="load_session_type_v2"
-                    )
+            
+            # We place the selectbox outside the form so it dynamically updates the UI labels instantly upon selection!
+            c_col1, c_col2 = st.columns(2)
+            with c_col1:
+                terminal_id_load = st.text_input("Terminal ID", value="S169RB02", key="load_term_id_v2")
+                report_date_load = st.date_input("Report Date", value=datetime.today(), key="load_rep_date_v2")
+                loading_session = st.selectbox(
+                    "Select Loading Session", 
+                    [
+                        "1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", 
+                        "4th Cash Loading", "5th Cash Loading", "6th Cash Loading", 
+                        "7th Cash Loading", "8th Cash Loading", "9th Cash Loading", 
+                        "10th Cash Loading"
+                    ],
+                    key="load_session_type_v2"
+                )
+
+            with st.form("cash_loading_form_unique_v3"):
                 with c_col2:
-                    load_time = st.time_input("Loading Action Time", key="load_time_val_v2")
-                    loading_total = st.number_input("Loading Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="load_amt_val_v2")
+                    load_time = st.time_input("Loading Action Time", key="load_time_val_v3")
+                    loading_total = st.number_input("Loading Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="load_amt_val_v3")
 
                 st.markdown("---")
-                st.markdown(f"#### 📄 Mandatory SOP & HOST Receipts for `{loading_session}`")
-                sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_sop_file_v2")
-                host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_host_file_v2")
+                # Dynamic labels reflecting the exact selected session (e.g., 2nd Cash Loading)
+                st.markdown(f"#### 📄 Mandatory SOP & HOST Receipts for {loading_session}")
+                sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_sop_file_v3")
+                host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_host_file_v3")
 
                 if st.form_submit_button(f"💾 Save {loading_session} Entry", type="primary"):
                     sop_name = sop_file.name if sop_file else "None"
@@ -514,18 +518,18 @@ def render_test_execution_page():
             st.markdown("### Record Final Unloading Receipts")
             st.info("⚠️ Complete all loading sessions first. Before final unloading, select the action time and upload both final unloading receipts.")
             
-            with st.form("cash_unloading_form_unique_v2"):
+            with st.form("cash_unloading_form_unique_v3"):
                 u_col1, u_col2 = st.columns(2)
                 with u_col1:
-                    unloading_term_id = st.text_input("Terminal ID", value="S169RB02", key="unload_term_id_v2")
-                    unloading_date = st.date_input("Report Date", value=datetime.today(), key="unload_rep_date_v2")
+                    unloading_term_id = st.text_input("Terminal ID", value="S169RB02", key="unload_term_id_v3")
+                    unloading_date = st.date_input("Report Date", value=datetime.today(), key="unload_rep_date_v3")
                 with u_col2:
-                    unload_time = st.time_input("Unloading Action Time", key="unload_time_val_v2")
+                    unload_time = st.time_input("Unloading Action Time", key="unload_time_val_v3")
 
                 st.markdown("---")
                 st.markdown("#### 📄 Mandatory Final Unloading Receipts (SOP & HOST)")
-                unload_sop = st.file_uploader("Upload Final SOP Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_sop_file_v2")
-                unload_host = st.file_uploader("Upload Final HOST Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_host_file_v2")
+                unload_sop = st.file_uploader("Upload Final SOP Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_sop_file_v3")
+                unload_host = st.file_uploader("Upload Final HOST Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_host_file_v3")
 
                 if st.form_submit_button("💾 Save Final Unloading Receipts", type="primary"):
                     sop_name = unload_sop.name if unload_sop else "None"
