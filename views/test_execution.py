@@ -21,7 +21,6 @@ def format_module_dataframe(df_raw, module_name):
     formatted_rows = []
     
     for _, row in df_raw.iterrows():
-        # Safely parse extra_data dictionary if stored as string
         extra = {}
         extra_data_val = row.get("extra_data")
         if extra_data_val:
@@ -174,7 +173,6 @@ def format_module_dataframe(df_raw, module_name):
                 "Expected Result / Remarks": row.get("tester_remarks", "")
             })
         else:
-            # Fallback standard format
             formatted_rows.append({
                 "TC ID": row.get("tc_id", ""),
                 "Test Description": row.get("test_description", ""),
@@ -459,7 +457,7 @@ def render_test_execution_page():
                         st.error(f"Error saving cash log: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER WITH EXACT HEADERS
+    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER
     # -------------------------------------------------------------------------
     with tab_export:
         st.subheader("📊 Finance Export & Interactive Table Viewer")
@@ -488,14 +486,11 @@ def render_test_execution_page():
 
             st.markdown(f"### 📋 Records for `{selected_view_option}`")
             
-            # Interactive Sorting Options
             sort_col = st.selectbox("Sort By Column", df_view.columns.tolist(), key="sort_col")
             sort_order = st.radio("Sort Order", ["Ascending", "Descending"], horizontal=True, key="sort_ord")
             ascending_bool = True if sort_order == "Ascending" else False
             
             df_sorted = df_view.sort_values(by=sort_col, ascending=ascending_bool)
-            
-            # Display interactive dataframe table view
             st.dataframe(df_sorted, use_container_width=True)
         else:
             st.info(f"No test execution records found for `{selected_view_option}` yet.")
@@ -509,11 +504,11 @@ def render_test_execution_page():
                 conn = get_db_connection()
                 if conn:
                     try:
-                        # 1. Master Tab containing all records
+                        # 1. Master Tab
                         df_all_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
                         df_all_raw.to_excel(writer, sheet_name="All_Modules_Master", index=False, startrow=2)
 
-                        # 2. Individual Module Tabs with Exact Formatted Columns
+                        # 2. Individual Module Tabs
                         for mod_name in modules:
                             df_mod_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
                             df_formatted = format_module_dataframe(df_mod_raw, mod_name)
@@ -522,14 +517,14 @@ def render_test_execution_page():
                     except Exception as e:
                         st.error(f"Error compiling export: {e}")
             
-            # Post-process workbook with openpyxl for professional colorful heading styling
+            # Post-process workbook with openpyxl for exact custom formatting
             output.seek(0)
             import openpyxl
             wb = openpyxl.load_workbook(output)
             
             navy_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-            white_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            title_font = Font(name="Calibri", size=14, bold=True, color="1F497D")
+            white_bold_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            title_font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
             thin_border = Border(
                 left=Side(style='thin', color='D3D3D3'),
                 right=Side(style='thin', color='D3D3D3'),
@@ -541,29 +536,38 @@ def render_test_execution_page():
                 ws = wb[sheet_name]
                 ws.views.sheetView[0].showGridLines = True
                 
-                # Add title block on row 1
-                ws.cell(row=1, column=1, value=f"UAT Test Execution Report - {sheet_name}").font = title_font
+                max_col = ws.max_column
                 
-                # Style header row (row 3)
-                for col_idx in range(1, ws.max_column + 1):
+                # Merge Row 1 for the title block
+                ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+                title_cell = ws.cell(row=1, column=1, value=f"UAT Test Execution Report - {sheet_name}")
+                title_cell.font = title_font
+                title_cell.fill = navy_fill
+                title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                ws.row_dimensions[1].height = 30
+                
+                # Style header row (Row 3)
+                ws.row_dimensions[3].height = 25
+                for col_idx in range(1, max_col + 1):
                     cell = ws.cell(row=3, column=col_idx)
                     cell.fill = navy_fill
-                    cell.font = white_font
+                    cell.font = white_bold_font
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                     cell.border = thin_border
                 
-                # Apply borders and alignment to data cells
+                # Apply center alignment and borders to all data cells
                 for row in range(4, ws.max_row + 1):
-                    for col_idx in range(1, ws.max_column + 1):
+                    ws.row_dimensions[row].height = 20
+                    for col_idx in range(1, max_col + 1):
                         cell = ws.cell(row=row, column=col_idx)
                         cell.border = thin_border
-                        cell.alignment = Alignment(vertical="center")
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-                # Auto-fit column widths
+                # Auto-fit column widths (without clipping or restricting TC ID)
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col[0].column)
-                    ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+                    ws.column_dimensions[col_letter].width = max(max_len + 4, 18)
 
             final_output = io.BytesIO()
             wb.save(final_output)
