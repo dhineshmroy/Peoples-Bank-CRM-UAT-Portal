@@ -204,7 +204,7 @@ def render_test_execution_page():
     ]
 
     # -------------------------------------------------------------------------
-    # TAB 1: TEST EXECUTION WITH DYNAMIC FIELDS PER MODULE
+    # TAB 1: TEST EXECUTION WITH UNIQUE UPSERT
     # -------------------------------------------------------------------------
     with tab_exec:
         st.subheader("Execute Pre-Built Test Cases (Dynamic Module Layouts)")
@@ -398,14 +398,12 @@ def render_test_execution_page():
             if conn:
                 try:
                     cur = conn.cursor()
-                    
-                    # 1. Explicitly delete any existing entry for this specific module and test case first
+                    # Ensure unique latest record per test case
                     cur.execute("""
                         DELETE FROM uat_test_executions 
                         WHERE module_name = %s AND tc_id = %s;
                     """, (selected_module, selected_tc))
 
-                    # 2. Insert the fresh latest record
                     try:
                         cur.execute("""
                             INSERT INTO uat_test_executions 
@@ -428,39 +426,74 @@ def render_test_execution_page():
                     st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (WITH UNLOADING RECEIPTS & SESSIONS)
     # -------------------------------------------------------------------------
     with tab_cash:
         st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
+        st.markdown("Record cash loading sessions (1st, 2nd, 3rd) and mandatory unloading session receipts (SOP & HOST).")
+        
         with st.form("cash_loading_form"):
             c_col1, c_col2 = st.columns(2)
             with c_col1:
-                terminal_id = st.text_input("Terminal ID", value="169RB02")
+                terminal_id = st.text_input("Terminal ID", value="S169RB02")
                 report_date = st.date_input("Report Date", value=datetime.today())
-                loading_session = st.selectbox("Loading Session", ["1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", "Unloading Session"])
+                loading_session = st.selectbox(
+                    "Session Type", 
+                    ["1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", "Unloading Session"]
+                )
             with c_col2:
-                load_time = st.time_input("Loading / Action Time")
-                loading_total = st.number_input("Loading / Session Total (LKR)", value=0.00, min_value=0.00)
+                load_time = st.time_input("Loading / Unloading Action Time")
+                loading_total = st.number_input("Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f")
 
+            st.markdown("---")
+            st.markdown("### 📄 Mandatory Session Receipts (SOP & HOST)")
+            st.info("Both SOP and HOST receipts must be uploaded for loading and unloading sessions.")
+            
             sop_file = st.file_uploader("Upload SOP Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="sop")
             host_file = st.file_uploader("Upload HOST Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="host")
 
-            if st.form_submit_button("💾 Save Cash Loading Entry"):
+            if st.form_submit_button("💾 Save Cash Session Entry", type="primary"):
                 sop_name = sop_file.name if sop_file else "None"
                 host_name = host_file.name if host_file else "None"
                 conn = get_db_connection()
                 if conn:
                     try:
                         cur = conn.cursor()
+                        # Ensure table exists or insert into cash logs table
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS terminal_cash_logs (
+                                id SERIAL PRIMARY KEY,
+                                terminal_id VARCHAR(50),
+                                report_date DATE,
+                                loading_session VARCHAR(50),
+                                load_time VARCHAR(20),
+                                loading_total NUMERIC(15,2),
+                                sop_receipt_path VARCHAR(255),
+                                host_receipt_path VARCHAR(255),
+                                logged_by VARCHAR(50),
+                                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
+                            );
+                        """)
+                        
+                        # Upsert session log
                         cur.execute("""
                             INSERT INTO terminal_cash_logs 
                             (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (terminal_id, report_date, loading_session, str(load_time), loading_total, sop_name, host_name, st.session_state.get("logged_user", "Tester")))
+                            ON CONFLICT (terminal_id, report_date, loading_session)
+                            DO UPDATE SET 
+                                load_time = EXCLUDED.load_time,
+                                loading_total = EXCLUDED.loading_total,
+                                sop_receipt_path = EXCLUDED.sop_receipt_path,
+                                host_receipt_path = EXCLUDED.host_receipt_path,
+                                logged_at = CURRENT_TIMESTAMP;
+                        """, (terminal_id, report_date, loading_session, str(load_time), loading_total, sop_name, host_name, st.session_state.get("logged_user", "TESTER")))
+                        
                         conn.commit()
                         cur.close()
                         conn.close()
-                        st.success(f"Successfully recorded **{loading_session}** of LKR {loading_total:,.2f}!")
+                        st.success(f"Successfully recorded **{loading_session}** of LKR {loading_total:,.2f} for Terminal `{terminal_id}`!")
                     except Exception as e:
                         st.error(f"Error saving cash log: {e}")
 
@@ -471,7 +504,7 @@ def render_test_execution_page():
         st.subheader("📊 Finance Export & Interactive Table Viewer")
         st.markdown("View, filter, sort, and download complete multi-tab execution reports styled professionally.")
 
-        view_options = ["🌐 All Modules (Combined Master View)"] + modules
+        view_options = ["🌐 All Modules (Combined Master View)", "💵 Cash Loading & Unloading Report"] + modules
         selected_view_option = st.selectbox("Select Module to View/Sort", view_options, key="view_mod")
         
         conn = get_db_connection()
@@ -480,6 +513,8 @@ def render_test_execution_page():
             try:
                 if selected_view_option == "🌐 All Modules (Combined Master View)":
                     df_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
+                elif selected_view_option == "💵 Cash Loading & Unloading Report":
+                    df_raw = pd.read_sql("SELECT * FROM terminal_cash_logs ORDER BY report_date DESC", conn)
                 else:
                     df_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{selected_view_option}'", conn)
                 conn.close()
@@ -488,6 +523,8 @@ def render_test_execution_page():
 
         if not df_raw.empty:
             if selected_view_option == "🌐 All Modules (Combined Master View)":
+                df_view = df_raw
+            elif selected_view_option == "💵 Cash Loading & Unloading Report":
                 df_view = df_raw
             else:
                 df_view = format_module_dataframe(df_raw, selected_view_option)
@@ -501,7 +538,7 @@ def render_test_execution_page():
             df_sorted = df_view.sort_values(by=sort_col, ascending=ascending_bool)
             st.dataframe(df_sorted, use_container_width=True)
         else:
-            st.info(f"No test execution records found for `{selected_view_option}` yet.")
+            st.info(f"No records found for `{selected_view_option}` yet.")
 
         st.markdown("---")
         st.subheader("📥 Download Styled Multi-Tab Finance Workbook")
@@ -512,11 +549,58 @@ def render_test_execution_page():
                 conn = get_db_connection()
                 if conn:
                     try:
-                        # 1. Master Tab
+                        # 1. Cash Loading & Unloading Summary Sheet (Formatted exactly as requested)
+                        try:
+                            df_cash = pd.read_sql("SELECT * FROM terminal_cash_logs ORDER BY report_date DESC LIMIT 1", conn)
+                            if not df_cash.empty:
+                                c_row = df_cash.iloc[0]
+                                term_id_val = c_row.get("terminal_id", "S169RB02")
+                                date_val = str(c_row.get("report_date", datetime.today().strftime('%Y-%m-%d')))
+                            else:
+                                term_id_val, date_val = "S169RB02", datetime.today().strftime('%Y-%m-%d')
+                            
+                            # Fetch totals per session
+                            df_all_cash = pd.read_sql("SELECT loading_session, load_time, loading_total FROM terminal_cash_logs", conn)
+                            session_dict = {}
+                            total_loaded = 0.0
+                            unloading_total = 0.0
+                            for _, r in df_all_cash.iterrows():
+                                s_name = r["loading_session"]
+                                session_dict[f"{s_name}_time"] = r["load_time"]
+                                session_dict[f"{s_name}_total"] = float(r["loading_total"] or 0)
+                                if "Loading" in s_name:
+                                    total_loaded += float(r["loading_total"] or 0)
+                                elif "Unloading" in s_name:
+                                    unloading_total += float(r["loading_total"] or 0)
+                        except Exception:
+                            term_id_val = "S169RB02"
+                            date_val = datetime.today().strftime('%Y-%m-%d')
+                            session_dict = {}
+                            total_loaded = 0.0
+                            unloading_total = 0.0
+
+                        cash_report_data = [
+                            ["Terminal ID", term_id_val],
+                            ["Date", date_val],
+                            ["1st Cash Loading Time", session_dict.get("1st Cash Loading_time", "-")],
+                            ["1st Loading Total", session_dict.get("1st Cash Loading_total", 0.0)],
+                            ["2nd Cash Loading Time", session_dict.get("2nd Cash Loading_time", "-")],
+                            ["2nd Loading Total", session_dict.get("2nd Cash Loading_total", 0.0)],
+                            ["3rd Cash Loading Time", session_dict.get("3rd Cash Loading_time", "-")],
+                            ["3rd Loading Total", session_dict.get("3rd Cash Loading_total", 0.0)],
+                            ["Total Cash Loaded", total_loaded],
+                            ["Unloading Time", session_dict.get("Unloading Session_time", "-")],
+                            ["Unloading Total", unloading_total],
+                            ["Net Cash Balance / Variance", total_loaded - unloading_total]
+                        ]
+                        df_cash_report = pd.DataFrame(cash_report_data, columns=["Report Information", "Details"])
+                        df_cash_report.to_excel(writer, sheet_name="Cash_Loading_Unloading", index=False, startrow=2)
+
+                        # 2. Master Tab
                         df_all_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
                         df_all_raw.to_excel(writer, sheet_name="All_Modules_Master", index=False, startrow=2)
 
-                        # 2. Individual Module Tabs
+                        # 3. Individual Module Tabs
                         for mod_name in modules:
                             df_mod_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
                             df_formatted = format_module_dataframe(df_mod_raw, mod_name)
@@ -546,9 +630,15 @@ def render_test_execution_page():
                 
                 max_col = ws.max_column
                 
+                # Custom Title for Cash Report vs Test Execution Reports
+                if sheet_name == "Cash_Loading_Unloading":
+                    title_text = "CASH LOADING & UNLOADING REPORT"
+                else:
+                    title_text = f"UAT Test Execution Report - {sheet_name}"
+
                 # Merge Row 1 for the title block
                 ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
-                title_cell = ws.cell(row=1, column=1, value=f"UAT Test Execution Report - {sheet_name}")
+                title_cell = ws.cell(row=1, column=1, value=title_text)
                 title_cell.font = title_font
                 title_cell.fill = navy_fill
                 title_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -571,7 +661,7 @@ def render_test_execution_page():
                         cell.border = thin_border
                         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-                # Auto-fit column widths (without clipping or restricting TC ID)
+                # Auto-fit column widths
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col[0].column)
