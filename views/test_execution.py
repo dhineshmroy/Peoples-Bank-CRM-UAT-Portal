@@ -69,128 +69,127 @@ def render_test_execution_page():
             st.info(f"**Test Description:** {pre_desc}")
 
         with st.form(key="dynamic_exec_form"):
-            # Universal common fields across most modules
             col1, col2 = st.columns(2)
             with col1:
-                stan = st.text_input("STAN / UTANO", placeholder="e.g., 402050")
-                current_date_prefix = datetime.now().strftime("%y%m%d")
-                auto_rrn = f"{current_date_prefix}00{stan[-6:]}" if len(stan) >= 4 else f"{current_date_prefix}00000000"
+                stan = st.text_input("STAN / UTANO", placeholder="e.g., 260824000228220130")
+                
+                # Corrected RRN Extraction: extracts from index 6 onwards matching your example (000228220130)
+                if len(stan) >= 12:
+                    auto_rrn = stan[6:] if len(stan) >= 18 else stan[-12:]
+                else:
+                    auto_rrn = ""
+                
                 rrn = st.text_input("RRN (Retrieval Reference Number - Auto)", value=auto_rrn)
             
-            # Initialize dictionary to capture dynamic inputs
-            form_data = {}
-
-            # --- MODULE SPECIFIC INPUT FIELDS ---
+            # --- MODULE SPECIFIC INPUT FIELDS WITH LIVE CALCULATIONS ---
             if selected_module == "GRG_CRM_Cardless_Bill_Payment":
                 with col2:
-                    form_data["biller_name"] = st.text_input("Biller Name / Category", value=pre_biller)
-                    form_data["consumer_acc"] = st.text_input("Consumer / Acc / Ref No")
+                    biller_name = st.text_input("Biller Name / Category", value=pre_biller)
+                    consumer_acc = st.text_input("Consumer / Acc / Ref No")
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["bill_amount"] = st.number_input("Bill Txn Amount (LKR)", value=0.00, format="%.2f")
-                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                    bill_amount = st.number_input("Bill Txn Amount (LKR)", value=0.00, format="%.2f", key="cardless_bill_amt")
+                    service_charge = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f", key="cardless_serv_chg")
                 with c4:
-                    # Actual Paid = Bill Amount + Service Charge
-                    form_data["actual_paid"] = form_data["bill_amount"] + form_data["service_charge"]
-                    st.metric("Actual Paid Txn Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
-                    form_data["biller_sv_status"] = st.selectbox("Biller & SV Status", ["UPDATED", "PENDING", "FAILED"])
+                    actual_paid = bill_amount + service_charge
+                    st.markdown(f"**Actual Paid Txn Amount (LKR) [Auto]:** `LKR {actual_paid:,.2f}`")
+                    biller_sv_status = st.selectbox("Biller & SV Status", ["UPDATED", "PENDING", "FAILED"])
 
             elif selected_module == "GRG_CRM_Cardless_Cash_Deposit":
                 with col2:
-                    form_data["account_number"] = st.text_input("Account Number")
+                    account_number = st.text_input("Account Number")
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    before_balance = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    txn_amount = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
                 with c4:
-                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+                    after_balance = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
 
             elif selected_module == "GRG_CRM_Cardbased_Bill_Payment":
                 with col2:
-                    form_data["bill_number"] = st.text_input("Bill Number")
-                    form_data["card_number"] = st.text_input("Card Number")
+                    bill_number = st.text_input("Bill Number")
+                    card_number = st.text_input("Card Number")
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["account_number"] = st.text_input("Account Number")
-                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX", "RUPAY"])
-                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    account_number = st.text_input("Account Number")
+                    card_type = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX", "RUPAY"])
+                    before_balance = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    txn_amt = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f", key="cb_bill_amt")
                 with c4:
-                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
-                    form_data["actual_paid"] = form_data["txn_amount"] + form_data["service_charge"]
-                    st.metric("Actual Paid Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
-                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+                    serv_chg = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f", key="cb_bill_serv")
+                    actual_paid = txn_amt + serv_chg
+                    st.markdown(f"**Actual Paid Amount (LKR) [Auto]:** `LKR {actual_paid:,.2f}`")
+                    after_balance = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
 
             elif selected_module == "GRG_CRM_Cardbased_Cash_Deposit":
                 with col2:
-                    form_data["account_number"] = st.text_input("Account Number")
-                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
+                    account_number = st.text_input("Account Number")
+                    card_type = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    before_balance = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    txn_amount = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
                 with c4:
-                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+                    after_balance = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
 
             elif selected_module == "GRG_CRM_Cardbased_Cash_Withdraw":
                 with col2:
-                    form_data["card_number"] = st.text_input("Card Number")
-                    form_data["account_number"] = st.text_input("Account Number")
+                    card_number = st.text_input("Card Number")
+                    account_number = st.text_input("Account Number")
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
-                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    card_type = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
+                    before_balance = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    txn_amt = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f", key="cb_wd_amt")
                 with c4:
-                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
-                    form_data["actual_txn"] = form_data["txn_amount"] + form_data["service_charge"]
-                    st.metric("Actual Txn Amount (LKR) [Auto]", f"LKR {form_data['actual_txn']:,.2f}")
-                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+                    serv_chg = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f", key="cb_wd_serv")
+                    actual_txn = txn_amt + serv_chg
+                    st.markdown(f"**Actual Txn Amount (LKR) [Auto]:** `LKR {actual_txn:,.2f}`")
+                    after_balance = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
 
             elif selected_module == "GRG_CRM_Cardbased_Fund_transfer":
                 with col2:
-                    form_data["card_number"] = st.text_input("Card Number")
-                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER"])
+                    card_number = st.text_input("Card Number")
+                    card_type = st.selectbox("Card Type", ["VISA", "MASTER"])
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["from_acc"] = st.text_input("From Account Number")
-                    form_data["to_acc"] = st.text_input("To Account Number")
-                    form_data["before_bal_from"] = st.number_input("Before Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
-                    form_data["before_bal_to"] = st.number_input("Before Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
+                    from_acc = st.text_input("From Account Number")
+                    to_acc = st.text_input("To Account Number")
+                    before_bal_from = st.number_input("Before Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
+                    before_bal_to = st.number_input("Before Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
                 with c4:
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
-                    form_data["after_bal_from"] = st.number_input("After Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
-                    form_data["after_bal_to"] = st.number_input("After Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
+                    txn_amount = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    after_bal_from = st.number_input("After Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
+                    after_bal_to = st.number_input("After Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
 
             elif selected_module in ["GRG_CRM_Cardbased_SLIC_Bill_Pay", "GRG_CRM_Cardless_SLIC_Bill_Paym"]:
                 with col2:
-                    form_data["bill_number"] = st.text_input("Bill Number")
+                    bill_number = st.text_input("Bill Number")
                     if "Cardbased" in selected_module:
-                        form_data["card_number"] = st.text_input("Card Number")
-                        form_data["account_number"] = st.text_input("Account Number")
-                    form_data["card_type"] = st.selectbox("Card Type / Biller Type", ["SLIC", "INSURANCE", "VISA", "MASTER"])
+                        card_number = st.text_input("Card Number")
+                        account_number = st.text_input("Account Number")
+                    card_type = st.selectbox("Card Type / Biller Type", ["SLIC", "INSURANCE", "VISA", "MASTER"])
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
-                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                    txn_amt = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f", key="slic_amt")
+                    serv_chg = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f", key="slic_serv")
                 with c4:
-                    form_data["actual_paid"] = form_data["txn_amount"] + form_data.get("service_charge", 0.00)
-                    st.metric("Actual Paid Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
+                    actual_paid = txn_amt + serv_chg
+                    st.markdown(f"**Actual Paid Amount (LKR) [Auto]:** `LKR {actual_paid:,.2f}`")
 
             elif selected_module == "GRG_CRM_Cardbased_Mini_Statemen":
                 with col2:
-                    form_data["card_number"] = st.text_input("Card Number")
-                    form_data["account_number"] = st.text_input("Account Number")
+                    card_number = st.text_input("Card Number")
+                    account_number = st.text_input("Account Number")
                 c3, c4 = st.columns(2)
                 with c3:
-                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER"])
-                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    card_type = st.selectbox("Card Type", ["VISA", "MASTER"])
+                    before_balance = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
                 with c4:
-                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
-                    form_data["actual_txn"] = form_data["service_charge"]
-                    st.metric("Actual Txn Amount (LKR)", f"LKR {form_data['actual_txn']:,.2f}")
+                    serv_chg = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f", key="mini_serv")
+                    st.markdown(f"**Actual Txn Amount (LKR):** `LKR {serv_chg:,.2f}`")
 
-            # Common Status Controls at the bottom of form
+            # Common Status Controls
             st.markdown("---")
             s_col1, s_col2 = st.columns(2)
             with s_col1:
@@ -210,9 +209,9 @@ def render_test_execution_page():
                         cur = conn.cursor()
                         cur.execute("""
                             INSERT INTO uat_test_executions 
-                            (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by, extra_data)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, (selected_module, selected_tc, pre_desc, rrn, stan, fe_status, sibs_status, overall_status, remarks, st.session_state.get("logged_user", "Tester"), str(form_data)))
+                            (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (selected_module, selected_tc, pre_desc, rrn, stan, fe_status, sibs_status, overall_status, remarks, st.session_state.get("logged_user", "Tester")))
                         conn.commit()
                         cur.close()
                         conn.close()
