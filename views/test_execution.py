@@ -399,62 +399,33 @@ def render_test_execution_page():
                 try:
                     cur = conn.cursor()
                     
-                    # Upsert query: If module_name + tc_id already exists, update it with latest results
-                    upsert_query_with_extra = """
-                        INSERT INTO uat_test_executions 
-                        (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by, extra_data)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (module_name, tc_id) 
-                        DO UPDATE SET 
-                            test_description = EXCLUDED.test_description,
-                            rrn = EXCLUDED.rrn,
-                            stan_utano = EXCLUDED.stan_utano,
-                            fe_status = EXCLUDED.fe_status,
-                            sibs_status = EXCLUDED.sibs_status,
-                            overall_status = EXCLUDED.overall_status,
-                            tester_remarks = EXCLUDED.tester_remarks,
-                            executed_by = EXCLUDED.executed_by,
-                            extra_data = EXCLUDED.extra_data,
-                            executed_at = CURRENT_TIMESTAMP;
-                    """
-                    
-                    upsert_query_without_extra = """
-                        INSERT INTO uat_test_executions 
-                        (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (module_name, tc_id) 
-                        DO UPDATE SET 
-                            test_description = EXCLUDED.test_description,
-                            rrn = EXCLUDED.rrn,
-                            stan_utano = EXCLUDED.stan_utano,
-                            fe_status = EXCLUDED.fe_status,
-                            sibs_status = EXCLUDED.sibs_status,
-                            overall_status = EXCLUDED.overall_status,
-                            tester_remarks = EXCLUDED.tester_remarks,
-                            executed_by = EXCLUDED.executed_by,
-                            executed_at = CURRENT_TIMESTAMP;
-                    """
+                    # 1. Explicitly delete any existing entry for this specific module and test case first
+                    cur.execute("""
+                        DELETE FROM uat_test_executions 
+                        WHERE module_name = %s AND tc_id = %s;
+                    """, (selected_module, selected_tc))
 
+                    # 2. Insert the fresh latest record
                     try:
-                        cur.execute(upsert_query_with_extra, (
-                            selected_module, selected_tc, pre_desc, rrn, stan, 
-                            fe_status, sibs_status, overall_status, remarks, 
-                            st.session_state.get("logged_user", "TESTER"), str(form_data)
-                        ))
+                        cur.execute("""
+                            INSERT INTO uat_test_executions 
+                            (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by, extra_data)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (selected_module, selected_tc, pre_desc, rrn, stan, fe_status, sibs_status, overall_status, remarks, st.session_state.get("logged_user", "TESTER"), str(form_data)))
                     except Exception:
                         conn.rollback()
-                        cur.execute(upsert_query_without_extra, (
-                            selected_module, selected_tc, pre_desc, rrn, stan, 
-                            fe_status, sibs_status, overall_status, remarks, 
-                            st.session_state.get("logged_user", "TESTER")
-                        ))
+                        cur.execute("""
+                            INSERT INTO uat_test_executions 
+                            (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (selected_module, selected_tc, pre_desc, rrn, stan, fe_status, sibs_status, overall_status, remarks, st.session_state.get("logged_user", "TESTER")))
                     
                     conn.commit()
                     cur.close()
                     conn.close()
-                    st.success(f"Successfully updated latest record for **{selected_tc}** under **{selected_module}**!")
+                    st.success(f"Successfully saved latest update for **{selected_tc}** under **{selected_module}**!")
                 except Exception as e:
-                    st.error(f"Error saving/updating execution record: {e}")
+                    st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
     # TAB 2: CASH LOADING & UNLOADING MANAGEMENT
