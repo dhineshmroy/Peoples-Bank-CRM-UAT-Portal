@@ -4,9 +4,6 @@ import io
 import psycopg2
 from datetime import datetime
 
-# ---------------------------------------------------------
-# POSTGRESQL / SUPABASE DATABASE CONNECTION
-# ---------------------------------------------------------
 def get_db_connection():
     try:
         db_url = st.secrets["postgres"]["url"]
@@ -17,139 +14,280 @@ def get_db_connection():
         return None
 
 def render_test_execution_page():
-    st.title("💳 GRG CRM - Automated Test Execution & Finance Export")
-    st.markdown("""
-    Execute positive test cases, record live transaction identifiers (RRN, STAN/UTANO, Balances), 
-    and export multi-tab execution sheets for **Finance Department Confirmation**.
-    """)
-
-    # Module selection matching your Excel tabs
-    modules = {
-        "GRG_CRM_Cardless_Bill_Payment": [
-            "TC_ID", "Test Description", "Biller Name / Category", "Consumer / Acc / Ref No", 
-            "RRN (Retrieval Ref)", "STAN / UTANO", "Bill Txn Amount (LKR)", "Service Charge", 
-            "Actual Paid Txn Amount (LKR)", "FE Status", "Biller & SV Status", 
-            "Core Banking (SIBS) Status", "Overall Test Status", "Expected Result / Remarks"
-        ],
-        "GRG_CRM_Cardless_Cash_Deposit": [
-            "TC_ID", "Test Description", "Account Number", "RRN (Retrieval Ref)", "STAN / UTANO", 
-            "Before Txn Balance (LKR)", "Txn Amount (LKR)", "After Txn Balance (LKR)", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_Bill_Payment": [
-            "TC_ID", "Test Description", "Bill Number", "Card Number", "Account Number", "Card Type", 
-            "RRN (Retrieval Ref)", "STAN / UTANO", "Before Txn Balance (LKR)", "Txn Amount (LKR)", 
-            "Service Charge", "Actual paid amount (LKR)", "After Txn Balance (LKR)", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_Cash_Deposit": [
-            "TC_ID", "Test Description", "Account Number", "Card Type", "RRN (Retrieval Ref)", "STAN / UTANO", 
-            "Before Txn Balance (LKR)", "Txn Amount (LKR)", "After Txn Balance (LKR)", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_Cash_Withdrawal": [
-            "TC_ID", "Test Description", "Card Number", "Account Number", "Card Type", "RRN (Retrieval Ref)", 
-            "STAN / UTANO", "Before Txn Balance (LKR)", "Txn Amount (LKR)", "Service Charge", 
-            "Actual Txn Amount (LKR)", "After Txn Balance (LKR)", "Front-End (FE) Status", 
-            "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_Fund_transfer": [
-            "TC_ID", "Test Description", "Card Number", "Card Type", "From Account Number", "To Account Number", 
-            "RRN (Retrieval Ref)", "STAN / UTANO", "Before Txn Balance (LKR) - From Acc", "Before Txn Balance (LKR) - To Acc", 
-            "Txn Amount (LKR)", "After Txn Balance (LKR) - From Acc", "To After Txn Balance (LKR) To Acc", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_SLIC_Bill_Payment": [
-            "TC_ID", "Test Description", "Bill Number", "Card Number", "Account Number", "Card Type", 
-            "RRN (Retrieval Ref)", "STAN / UTANO", "Txn Amount (LKR)", "Actual paid amount (LKR)", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardless_SLIC_Bill_Payment": [
-            "TC_ID", "Test Description", "Bill Number", "Card Type", "RRN (Retrieval Ref)", "STAN / UTANO", 
-            "Txn Amount (LKR)", "Service Charge", "Actual paid amount (LKR)", "Front-End (FE) Status", 
-            "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ],
-        "GRG_CRM_Cardbased_Mini_Statement": [
-            "TC_ID", "Test Description", "Card Number", "Account Number", "Card Type", "RRN (Retrieval Ref)", 
-            "STAN / UTANO", "Before Txn Balance (LKR)", "Service Charge (LKR)", "Actual Txn Amount (LKR)", 
-            "Front-End (FE) Status", "Core Banking (SIBS) Status", "Overall Test Status", "Tester Remarks / Notes"
-        ]
-    }
-
-    selected_module = st.selectbox("Select Test Module / Feature", list(modules.keys()))
-    columns = modules[selected_module]
-
-    st.subheader(f"📝 Execute & Record: {selected_module}")
+    st.title("💳 GRG CRM - Test Execution & Cash Loading Management")
     
-    with st.form(key="execution_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            tc_id = st.text_input("Test Case ID (e.g., TC_CL_BP_001)", value="TC_CL_BP_001")
-            test_desc = st.text_input("Test Description", value="Successful transaction test")
-            rrn = st.text_input("RRN (Retrieval Reference Number)")
-            stan = st.text_input("STAN / UTANO")
-        with col2:
-            txn_amount = st.number_input("Transaction Amount (LKR)", value=100.00)
-            service_charge = st.number_input("Service Charge (LKR)", value=0.00)
-            fe_status = st.selectbox("Front-End (FE) Status", ["SUCCESS", "FAILED"])
-            sibs_status = st.selectbox("Core Banking (SIBS) Status", ["UPDATED (SIBS)", "PENDING", "FAILED"])
+    tab_exec, tab_cash, tab_export = st.tabs(["📝 Test Execution", "💵 Cash Loading & Receipts", "📊 Finance Export"])
 
-        remarks = st.text_area("Tester Remarks / Notes", value="Receipt printed successfully")
-        
-        submit_btn = st.form_submit_button("💾 Save Test Execution Record")
-        
-        if submit_btn:
-            conn = get_db_connection()
-            if conn:
-                try:
-                    cur = conn.cursor()
-                    cur.execute("""
-                        INSERT INTO uat_test_executions 
-                        (module_name, tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, 
-                         fe_status, sibs_status, overall_status, tester_remarks, executed_by)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (selected_module, tc_id, test_desc, rrn, stan, txn_amount, service_charge,
-                          fe_status, sibs_status, "PASS" if fe_status=="SUCCESS" else "FAIL", remarks, st.session_state.get("logged_user", "Tester")))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-                    st.success(f"Test case {tc_id} recorded successfully to Supabase!")
-                except Exception as e:
-                    st.error(f"Database save error (Check if table `uat_test_executions` exists in Supabase): {e}")
+    modules = [
+        "GRG_CRM_Cardless_Bill_Payment",
+        "GRG_CRM_Cardless_Cash_Deposit",
+        "GRG_CRM_Cardbased_Bill_Payment",
+        "GRG_CRM_Cardbased_Cash_Deposit",
+        "GRG_CRM_Cardbased_Cash_Withdraw",
+        "GRG_CRM_Cardbased_Fund_transfer",
+        "GRG_CRM_Cardbased_SLIC_Bill_Pay",
+        "GRG_CRM_Cardless_SLIC_Bill_Paym",
+        "GRG_CRM_Cardbased_Mini_Statemen"
+    ]
 
-    st.markdown("---")
-    st.subheader("📊 Export Multi-Tab Report for Finance Department")
-    st.markdown("Download all executed test cases formatted into the exact multi-sheet workbook structure required by Finance.")
+    # -------------------------------------------------------------------------
+    # TAB 1: TEST EXECUTION WITH DYNAMIC FIELDS PER MODULE
+    # -------------------------------------------------------------------------
+    with tab_exec:
+        st.subheader("Execute Pre-Built Test Cases (Dynamic Module Layouts)")
+        selected_module = st.selectbox("Select Test Module / Feature", modules, key="exec_mod")
 
-    if st.button("📥 Generate & Download Finance Excel Report"):
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            conn = get_db_connection()
-            if conn:
-                try:
-                    for mod_name, cols in modules.items():
-                        df_mod = pd.read_sql(f"SELECT tc_id, test_description, rrn, stan_utano, txn_amount, service_charge, fe_status, sibs_status, overall_status, tester_remarks FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
-                        if df_mod.empty:
-                            df_mod = pd.DataFrame(columns=cols)
-                        df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False)
-                    conn.close()
-                except Exception:
-                    for mod_name, cols in modules.items():
-                        df_blank = pd.DataFrame(columns=cols)
-                        df_blank.to_excel(writer, sheet_name=mod_name[:31], index=False)
-            else:
-                for mod_name, cols in modules.items():
-                    df_blank = pd.DataFrame(columns=cols)
-                    df_blank.to_excel(writer, sheet_name=mod_name[:31], index=False)
+        # Fetch pre-built test cases from Supabase
+        conn = get_db_connection()
+        tc_list = []
+        tc_data_dict = {}
+        if conn:
+            try:
+                tc_df = pd.read_sql(f"SELECT tc_id, test_description, biller_category, expected_remarks FROM uat_test_cases WHERE module_name = '{selected_module}'", conn)
+                conn.close()
+                if not tc_df.empty:
+                    tc_list = tc_df['tc_id'].tolist()
+                    for _, row in tc_df.iterrows():
+                        tc_data_dict[row['tc_id']] = {
+                            "description": row.get('test_description', ''),
+                            "biller": row.get('biller_category', ''),
+                            "remarks": row.get('expected_remarks', '')
+                        }
+            except Exception:
+                pass
+
+        if not tc_list:
+            st.warning("No pre-built test cases found in database for this module. Please ensure your Excel sheets have been seeded.")
+            selected_tc = st.text_input("Test Case ID (Manual)", value="TC_001")
+            pre_desc, pre_biller, pre_remarks = "", "", ""
+        else:
+            selected_tc = st.selectbox("Select Test Case ID", tc_list)
+            details = tc_data_dict.get(selected_tc, {})
+            pre_desc = details.get("description", "")
+            pre_biller = details.get("biller", "")
+            pre_remarks = details.get("remarks", "")
+            st.info(f"**Test Description:** {pre_desc}")
+
+        with st.form(key="dynamic_exec_form"):
+            # Universal common fields across most modules
+            col1, col2 = st.columns(2)
+            with col1:
+                stan = st.text_input("STAN / UTANO", placeholder="e.g., 402050")
+                current_date_prefix = datetime.now().strftime("%y%m%d")
+                auto_rrn = f"{current_date_prefix}00{stan[-6:]}" if len(stan) >= 4 else f"{current_date_prefix}00000000"
+                rrn = st.text_input("RRN (Retrieval Reference Number - Auto)", value=auto_rrn)
             
-        output.seek(0)
-        
-        st.download_button(
-            label="⬇️ Download Completed Excel Sheet (.xlsx)",
-            data=output,
-            file_name=f"GRG_CRM_Test_Execution_Finance_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            # Initialize dictionary to capture dynamic inputs
+            form_data = {}
+
+            # --- MODULE SPECIFIC INPUT FIELDS ---
+            if selected_module == "GRG_CRM_Cardless_Bill_Payment":
+                with col2:
+                    form_data["biller_name"] = st.text_input("Biller Name / Category", value=pre_biller)
+                    form_data["consumer_acc"] = st.text_input("Consumer / Acc / Ref No")
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["bill_amount"] = st.number_input("Bill Txn Amount (LKR)", value=0.00, format="%.2f")
+                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    # Actual Paid = Bill Amount + Service Charge
+                    form_data["actual_paid"] = form_data["bill_amount"] + form_data["service_charge"]
+                    st.metric("Actual Paid Txn Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
+                    form_data["biller_sv_status"] = st.selectbox("Biller & SV Status", ["UPDATED", "PENDING", "FAILED"])
+
+            elif selected_module == "GRG_CRM_Cardless_Cash_Deposit":
+                with col2:
+                    form_data["account_number"] = st.text_input("Account Number")
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+
+            elif selected_module == "GRG_CRM_Cardbased_Bill_Payment":
+                with col2:
+                    form_data["bill_number"] = st.text_input("Bill Number")
+                    form_data["card_number"] = st.text_input("Card Number")
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["account_number"] = st.text_input("Account Number")
+                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX", "RUPAY"])
+                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                    form_data["actual_paid"] = form_data["txn_amount"] + form_data["service_charge"]
+                    st.metric("Actual Paid Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
+                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+
+            elif selected_module == "GRG_CRM_Cardbased_Cash_Deposit":
+                with col2:
+                    form_data["account_number"] = st.text_input("Account Number")
+                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+
+            elif selected_module == "GRG_CRM_Cardbased_Cash_Withdraw":
+                with col2:
+                    form_data["card_number"] = st.text_input("Card Number")
+                    form_data["account_number"] = st.text_input("Account Number")
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER", "AMEX"])
+                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                    form_data["actual_txn"] = form_data["txn_amount"] + form_data["service_charge"]
+                    st.metric("Actual Txn Amount (LKR) [Auto]", f"LKR {form_data['actual_txn']:,.2f}")
+                    form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=0.00, format="%.2f")
+
+            elif selected_module == "GRG_CRM_Cardbased_Fund_transfer":
+                with col2:
+                    form_data["card_number"] = st.text_input("Card Number")
+                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER"])
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["from_acc"] = st.text_input("From Account Number")
+                    form_data["to_acc"] = st.text_input("To Account Number")
+                    form_data["before_bal_from"] = st.number_input("Before Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
+                    form_data["before_bal_to"] = st.number_input("Before Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
+                with c4:
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    form_data["after_bal_from"] = st.number_input("After Txn Balance (LKR) - From Acc", value=0.00, format="%.2f")
+                    form_data["after_bal_to"] = st.number_input("After Txn Balance (LKR) - To Acc", value=0.00, format="%.2f")
+
+            elif selected_module in ["GRG_CRM_Cardbased_SLIC_Bill_Pay", "GRG_CRM_Cardless_SLIC_Bill_Paym"]:
+                with col2:
+                    form_data["bill_number"] = st.text_input("Bill Number")
+                    if "Cardbased" in selected_module:
+                        form_data["card_number"] = st.text_input("Card Number")
+                        form_data["account_number"] = st.text_input("Account Number")
+                    form_data["card_type"] = st.selectbox("Card Type / Biller Type", ["SLIC", "INSURANCE", "VISA", "MASTER"])
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["txn_amount"] = st.number_input("Txn Amount (LKR)", value=0.00, format="%.2f")
+                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["actual_paid"] = form_data["txn_amount"] + form_data.get("service_charge", 0.00)
+                    st.metric("Actual Paid Amount (LKR) [Auto]", f"LKR {form_data['actual_paid']:,.2f}")
+
+            elif selected_module == "GRG_CRM_Cardbased_Mini_Statemen":
+                with col2:
+                    form_data["card_number"] = st.text_input("Card Number")
+                    form_data["account_number"] = st.text_input("Account Number")
+                c3, c4 = st.columns(2)
+                with c3:
+                    form_data["card_type"] = st.selectbox("Card Type", ["VISA", "MASTER"])
+                    form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=0.00, format="%.2f")
+                with c4:
+                    form_data["service_charge"] = st.number_input("Service Charge (LKR)", value=0.00, format="%.2f")
+                    form_data["actual_txn"] = form_data["service_charge"]
+                    st.metric("Actual Txn Amount (LKR)", f"LKR {form_data['actual_txn']:,.2f}")
+
+            # Common Status Controls at the bottom of form
+            st.markdown("---")
+            s_col1, s_col2 = st.columns(2)
+            with s_col1:
+                fe_status = st.selectbox("Front-End (FE) Status", ["SUCCESS", "FAILED"])
+            with s_col2:
+                sibs_status = st.selectbox("Core Banking (SIBS) Status", ["UPDATED (SIBS)", "PENDING", "FAILED"])
+
+            overall_status = "PASS" if fe_status == "SUCCESS" and sibs_status == "UPDATED (SIBS)" else "FAIL"
+            st.write(f"**Overall Test Status (Auto):** `{overall_status}`")
+
+            remarks = st.text_area("Tester Remarks / Notes", value=pre_remarks)
+            
+            if st.form_submit_button("💾 Save Test Execution Record"):
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO uat_test_executions 
+                            (module_name, tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks, executed_by, extra_data)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (selected_module, selected_tc, pre_desc, rrn, stan, fe_status, sibs_status, overall_status, remarks, st.session_state.get("logged_user", "Tester"), str(form_data)))
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                        st.success(f"Successfully recorded execution for **{selected_tc}** under **{selected_module}**!")
+                    except Exception as e:
+                        st.error(f"Error saving execution record: {e}")
+
+    # -------------------------------------------------------------------------
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT
+    # -------------------------------------------------------------------------
+    with tab_cash:
+        st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
+        st.markdown("Record loading amounts, times, and attach both **SOP** and **HOST** receipts.")
+
+        with st.form("cash_loading_form"):
+            c_col1, c_col2 = st.columns(2)
+            with c_col1:
+                terminal_id = st.text_input("Terminal ID", value="169RB02")
+                report_date = st.date_input("Report Date", value=datetime.today())
+                loading_session = st.selectbox("Loading Session", ["1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", "Unloading Session"])
+            with c_col2:
+                load_time = st.time_input("Loading / Action Time")
+                loading_total = st.number_input("Loading / Session Total (LKR)", value=0.00, min_value=0.00)
+
+            st.markdown("### 📎 Receipt Uploads (SOP & HOST)")
+            sop_file = st.file_uploader("Upload SOP Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="sop")
+            host_file = st.file_uploader("Upload HOST Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="host")
+
+            if st.form_submit_button("💾 Save Cash Loading Entry"):
+                sop_name = sop_file.name if sop_file else "None"
+                host_name = host_file.name if host_file else "None"
+                
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            INSERT INTO terminal_cash_logs 
+                            (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (terminal_id, report_date, loading_session, str(load_time), loading_total, sop_name, host_name, st.session_state.get("logged_user", "Tester")))
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                        st.success(f"Successfully recorded **{loading_session}** of LKR {loading_total:,.2f} with receipts attached!")
+                    except Exception as e:
+                        st.error(f"Error saving cash log: {e}")
+
+    # -------------------------------------------------------------------------
+    # TAB 3: FINANCE EXPORT
+    # -------------------------------------------------------------------------
+    with tab_export:
+        st.subheader("📊 Export Multi-Tab Report for Finance Department")
+        if st.button("📥 Generate & Download Finance Excel Workbook"):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        for mod_name in modules:
+                            df_mod = pd.read_sql(f"SELECT tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
+                            if df_mod.empty:
+                                df_mod = pd.DataFrame(columns=["TC_ID", "Test Description", "RRN", "STAN", "FE Status", "SIBS Status", "Overall Status", "Remarks"])
+                            df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False)
+                        conn.close()
+                    except Exception:
+                        for mod_name in modules:
+                            pd.DataFrame().to_excel(writer, sheet_name=mod_name[:31], index=False)
+            output.seek(0)
+            st.download_button(
+                label="⬇️ Download Completed Finance Workbook (.xlsx)",
+                data=output,
+                file_name=f"PeoplesBank_CRM_Finance_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 if __name__ == "__main__":
     render_test_execution_page()
