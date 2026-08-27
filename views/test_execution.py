@@ -71,16 +71,31 @@ def render_test_execution_page():
         # --- LIVE INPUTS OUTSIDE FORM FOR REAL-TIME RRN & CALCULATION ---
         col1, col2 = st.columns(2)
         with col1:
-            # Clean input with no hardcoded default value
-            stan = st.text_input("STAN / UTANO", placeholder="Enter STAN / UTANO here...", key="stan_input")
+            # Function to automatically update RRN when STAN changes
+            def update_rrn():
+                stan_val = st.session_state.get("stan_input", "")
+                if len(stan_val) >= 12:
+                    st.session_state.rrn_input = stan_val[-12:]
+                else:
+                    st.session_state.rrn_input = stan_val
+
+            # STAN / UTANO input with callback
+            stan = st.text_input(
+                "STAN / UTANO", 
+                placeholder="Enter STAN / UTANO here...", 
+                key="stan_input",
+                on_change=update_rrn
+            )
             
-            # Dynamic RRN extraction based entirely on what you type
-            if stan and len(stan) >= 12:
-                auto_rrn = stan[-12:]
-            else:
-                auto_rrn = stan if stan else ""
-                
-            rrn = st.text_input("RRN (Retrieval Reference Number - Auto)", value=auto_rrn, key="rrn_input")
+            # Ensure session state for RRN exists
+            if "rrn_input" not in st.session_state:
+                st.session_state.rrn_input = ""
+
+            # RRN field linked directly to session state
+            rrn = st.text_input(
+                "RRN (Retrieval Reference Number - Auto)", 
+                key="rrn_input"
+            )
 
         form_data = {}
 
