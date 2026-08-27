@@ -3,6 +3,8 @@ import pandas as pd
 import io
 import psycopg2
 from datetime import datetime
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 def get_db_connection():
     try:
@@ -68,10 +70,8 @@ def render_test_execution_page():
             pre_remarks = details.get("remarks", "")
             st.info(f"**Test Description:** {pre_desc}")
 
-        # --- LIVE INPUTS OUTSIDE FORM FOR REAL-TIME RRN & CALCULATION ---
         col1, col2 = st.columns(2)
         with col1:
-            # Function to automatically update RRN when STAN changes
             def update_rrn():
                 stan_val = st.session_state.get("stan_input", "")
                 if len(stan_val) >= 12:
@@ -79,23 +79,12 @@ def render_test_execution_page():
                 else:
                     st.session_state.rrn_input = stan_val
 
-            # STAN / UTANO input with callback
-            stan = st.text_input(
-                "STAN / UTANO", 
-                placeholder="Enter STAN / UTANO here...", 
-                key="stan_input",
-                on_change=update_rrn
-            )
+            stan = st.text_input("STAN / UTANO", placeholder="Enter STAN / UTANO here...", key="stan_input", on_change=update_rrn)
             
-            # Ensure session state for RRN exists
             if "rrn_input" not in st.session_state:
                 st.session_state.rrn_input = ""
 
-            # RRN field linked directly to session state
-            rrn = st.text_input(
-                "RRN (Retrieval Reference Number - Auto)", 
-                key="rrn_input"
-            )
+            rrn = st.text_input("RRN (Retrieval Reference Number - Auto)", key="rrn_input")
 
         form_data = {}
 
@@ -114,6 +103,7 @@ def render_test_execution_page():
                 form_data["actual_paid"] = actual_paid
                 st.markdown(f"### **Actual Paid Txn Amount (LKR) [Auto]:** `LKR {actual_paid:,.2f}`")
                 biller_sv_status = st.selectbox("Biller & SV Status", ["UPDATED", "PENDING", "FAILED"])
+                form_data["biller_sv_status"] = biller_sv_status
 
         elif selected_module == "GRG_CRM_Cardless_Cash_Deposit":
             with col2:
@@ -238,7 +228,6 @@ def render_test_execution_page():
             if conn:
                 try:
                     cur = conn.cursor()
-                    # Included extra_data to match or fallback safely
                     try:
                         cur.execute("""
                             INSERT INTO uat_test_executions 
@@ -298,29 +287,109 @@ def render_test_execution_page():
                         st.error(f"Error saving cash log: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 3: FINANCE EXPORT
+    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEW WITH SORTING
     # -------------------------------------------------------------------------
     with tab_export:
-        st.subheader("📊 Export Multi-Tab Report for Finance Department")
-        if st.button("📥 Generate & Download Finance Excel Workbook"):
+        st.subheader("📊 Finance Export & Interactive Table Viewer")
+        st.markdown("View, filter, sort, and download complete multi-tab execution reports styled professionally.")
+
+        # Module selector for viewing live table
+        view_module = st.selectbox("Select Module to View/Sort", modules, key="view_mod")
+        
+        conn = get_db_connection()
+        df_view = pd.DataFrame()
+        if conn:
+            try:
+                df_view = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{view_module}'", conn)
+                conn.close()
+            except Exception:
+                pass
+
+        if not df_view.empty:
+            st.markdown(f"### 📋 Records for `{view_module}`")
+            
+            # Interactive Sorting Options
+            sort_col = st.selectbox("Sort By Column", df_view.columns.tolist(), key="sort_col")
+            sort_order = st.radio("Sort Order", ["Ascending", "Descending"], horizontal=True, key="sort_ord")
+            ascending_bool = True if sort_order == "Ascending" else False
+            
+            df_sorted = df_view.sort_values(by=sort_col, ascending=ascending_bool)
+            
+            # Display interactive dataframe table view
+            st.dataframe(df_sorted, use_container_width=True)
+        else:
+            st.info(f"No test execution records found for `{view_module}` yet.")
+
+        st.markdown("---")
+        st.subheader("📥 Download Styled Multi-Tab Finance Workbook")
+        
+        if st.button("📥 Generate & Download Colorful Excel Report"):
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 conn = get_db_connection()
                 if conn:
                     try:
                         for mod_name in modules:
-                            df_mod = pd.read_sql(f"SELECT tc_id, test_description, rrn, stan_utano, fe_status, sibs_status, overall_status, tester_remarks FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
+                            # Fetch full record details
+                            df_mod = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
                             if df_mod.empty:
-                                df_mod = pd.DataFrame(columns=["TC_ID", "Test Description", "RRN", "STAN", "FE Status", "SIBS Status", "Overall Status", "Remarks"])
-                            df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False)
+                                df_mod = pd.DataFrame(columns=["id", "module_name", "tc_id", "test_description", "rrn", "stan_utano", "fe_status", "sibs_status", "overall_status", "tester_remarks", "executed_by", "created_at"])
+                            
+                            df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False, startrow=2)
                         conn.close()
-                    except Exception:
-                        for mod_name in modules:
-                            pd.DataFrame().to_excel(writer, sheet_name=mod_name[:31], index=False)
+                    except Exception as e:
+                        st.error(f"Error compiling export: {e}")
+            
+            # Post-process workbook with openpyxl for professional colorful heading styling
             output.seek(0)
+            import openpyxl
+            wb = openpyxl.load_workbook(output)
+            
+            navy_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+            white_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            title_font = Font(name="Calibri", size=14, bold=True, color="1F497D")
+            thin_border = Border(
+                left=Side(style='thin', color='D3D3D3'),
+                right=Side(style='thin', color='D3D3D3'),
+                top=Side(style='thin', color='D3D3D3'),
+                bottom=Side(style='thin', color='D3D3D3')
+            )
+            
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                ws.views.sheetView[0].showGridLines = True
+                
+                # Add title block on row 1
+                ws.cell(row=1, column=1, value=f"UAT Test Execution Report - {sheet_name}").font = title_font
+                
+                # Style header row (row 3)
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=3, column=col_idx)
+                    cell.fill = navy_fill
+                    cell.font = white_font
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    cell.border = thin_border
+                
+                # Apply borders and alignment to data cells
+                for row in range(4, ws.max_row + 1):
+                    for col_idx in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row, column=col_idx)
+                        cell.border = thin_border
+                        cell.alignment = Alignment(vertical="center")
+
+                # Auto-fit column widths
+                for col in ws.columns:
+                    max_len = max(len(str(cell.value or '')) for cell in col)
+                    col_letter = get_column_letter(col[0].column)
+                    ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+            final_output = io.BytesIO()
+            wb.save(final_output)
+            final_output.seek(0)
+
             st.download_button(
-                label="⬇️ Download Completed Finance Workbook (.xlsx)",
-                data=output,
+                label="⬇️ Download Professional Excel Report (.xlsx)",
+                data=final_output,
                 file_name=f"PeoplesBank_CRM_Finance_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
