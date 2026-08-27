@@ -426,11 +426,11 @@ def render_test_execution_page():
                     st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (WITH UNLOADING RECEIPTS & SESSIONS)
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (SEPARATE RECEIPTS PER SESSION)
     # -------------------------------------------------------------------------
     with tab_cash:
         st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
-        st.markdown("Record cash loading sessions (1st, 2nd, 3rd) and mandatory unloading session receipts (SOP & HOST).")
+        st.markdown("Record cash loading and unloading sessions. **Mandatory SOP & HOST receipts must be uploaded for each session.**")
         
         with st.form("cash_loading_form"):
             c_col1, c_col2 = st.columns(2)
@@ -442,24 +442,27 @@ def render_test_execution_page():
                     ["1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", "Unloading Session"]
                 )
             with c_col2:
-                load_time = st.time_input("Loading / Unloading Action Time")
+                load_time = st.time_input("Action Time (Loading / Unloading)")
                 loading_total = st.number_input("Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f")
 
             st.markdown("---")
-            st.markdown("### 📄 Mandatory Session Receipts (SOP & HOST)")
-            st.info("Both SOP and HOST receipts must be uploaded for loading and unloading sessions.")
+            if "Unloading" in loading_session:
+                st.markdown("### 📄 Mandatory Unloading Receipts (SOP & HOST)")
+                st.info("⚠️ Before completing the unloading session, you must upload both the SOP and HOST receipts.")
+            else:
+                st.markdown(f"### 📄 Mandatory Receipts for {loading_session} (SOP & HOST)")
+                st.info("Please upload both SOP and HOST receipts for this loading session.")
             
-            sop_file = st.file_uploader("Upload SOP Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="sop")
-            host_file = st.file_uploader("Upload HOST Receipt (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="host")
+            sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="sop_receipt")
+            host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="host_receipt")
 
-            if st.form_submit_button("💾 Save Cash Session Entry", type="primary"):
+            if st.form_submit_button("💾 Save Cash Session & Receipts", type="primary"):
                 sop_name = sop_file.name if sop_file else "None"
                 host_name = host_file.name if host_file else "None"
                 conn = get_db_connection()
                 if conn:
                     try:
                         cur = conn.cursor()
-                        # Ensure table exists or insert into cash logs table
                         cur.execute("""
                             CREATE TABLE IF NOT EXISTS terminal_cash_logs (
                                 id SERIAL PRIMARY KEY,
@@ -476,7 +479,6 @@ def render_test_execution_page():
                             );
                         """)
                         
-                        # Upsert session log
                         cur.execute("""
                             INSERT INTO terminal_cash_logs 
                             (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
@@ -493,7 +495,7 @@ def render_test_execution_page():
                         conn.commit()
                         cur.close()
                         conn.close()
-                        st.success(f"Successfully recorded **{loading_session}** of LKR {loading_total:,.2f} for Terminal `{terminal_id}`!")
+                        st.success(f"Successfully recorded **{loading_session}** (Total: LKR {loading_total:,.2f}) along with its SOP & HOST receipts for Terminal `{terminal_id}`!")
                     except Exception as e:
                         st.error(f"Error saving cash log: {e}")
 
