@@ -426,104 +426,150 @@ def render_test_execution_page():
                     st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (SEPARATE LOADING & UNLOADING SECTIONS)
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (SEPARATE TABS/SECTIONS FOR LOADING VS UNLOADING)
     # -------------------------------------------------------------------------
     with tab_cash:
         st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
-        st.markdown("Record cash loading sessions (up to 10 loading entries) and the final Unloading session with their respective mandatory SOP & HOST receipts.")
+        st.markdown("Record individual cash loading sessions (1st to 10th) with their respective receipts and amounts, followed by the final Unloading session.")
         
-        with st.form("cash_loading_form"):
-            c_col1, c_col2 = st.columns(2)
-            with c_col1:
-                terminal_id = st.text_input("Terminal ID", value="S169RB02", key="cash_term_id")
-                report_date = st.date_input("Report Date", value=datetime.today(), key="cash_rep_date")
-            with c_col2:
-                session_type = st.selectbox(
-                    "Session Type", 
-                    [
-                        "1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", 
-                        "4th Cash Loading", "5th Cash Loading", "6th Cash Loading", 
-                        "7th Cash Loading", "8th Cash Loading", "9th Cash Loading", 
-                        "10th Cash Loading", "Unloading Session"
-                    ],
-                    key="cash_session_type"
-                )
+        # Sub-tabs for Loading vs Unloading to keep the flow crystal clear
+        cash_sub_tab1, cash_sub_tab2 = st.tabs(["📥 Cash Loading Sessions (1 to 10)", "📤 Final Unloading Session & Receipts"])
 
-            # Dynamic fields based on whether it's a Loading session or Unloading session
-            if "Loading" in session_type:
-                st.markdown(f"### 📥 {session_type} Details & Receipts")
-                
-                col_t1, col_t2 = st.columns(2)
-                with col_t1:
-                    load_time = st.time_input(f"{session_type} Action Time", key=f"time_{session_type}")
-                with col_t2:
-                    loading_total = st.number_input(f"{session_type} Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key=f"amt_{session_type}")
-
-                st.markdown("---")
-                st.markdown(f"#### 📄 Mandatory SOP & HOST Receipts for {session_type}")
-                sop_file = st.file_uploader(f"Upload SOP Receipt for {session_type} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key=f"sop_{session_type}")
-                host_file = st.file_uploader(f"Upload HOST Receipt for {session_type} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key=f"host_{session_type}")
-
-            else:
-                # Unloading Session Section
-                st.markdown("### 📤 Terminal Unloading Session & Final Receipts")
-                st.info("⚠️ Ensure all loading sessions are completed. Before finalizing unloading, upload the final SOP and HOST unloading receipts below.")
-                
-                col_u1, col_u2 = st.columns(2)
-                with col_u1:
-                    load_time = st.time_input("Unloading Action Time", key="time_unloading")
-                with col_u2:
-                    loading_total = st.number_input("Unloading Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="amt_unloading")
+        # -----------------------------------------------------------------
+        # SUB-TAB 1: CASH LOADING SESSIONS
+        # -----------------------------------------------------------------
+        with cash_sub_tab1:
+            st.markdown("### Record Cash Loading (1st up to 10th)")
+            with st.form("cash_loading_form"):
+                c_col1, c_col2 = st.columns(2)
+                with c_col1:
+                    terminal_id = st.text_input("Terminal ID", value="S169RB02", key="load_term_id")
+                    report_date = st.date_input("Report Date", value=datetime.today(), key="load_rep_date")
+                    loading_session = st.selectbox(
+                        "Select Loading Session", 
+                        [
+                            "1st Cash Loading", "2nd Cash Loading", "3rd Cash Loading", 
+                            "4th Cash Loading", "5th Cash Loading", "6th Cash Loading", 
+                            "7th Cash Loading", "8th Cash Loading", "9th Cash Loading", 
+                            "10th Cash Loading"
+                        ],
+                        key="load_session_type"
+                    )
+                with c_col2:
+                    load_time = st.time_input("Loading Action Time", key="load_time_val")
+                    loading_total = st.number_input("Loading Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="load_amt_val")
 
                 st.markdown("---")
-                st.markdown("#### 📄 Mandatory Unloading Receipts (SOP & HOST)")
-                sop_file = st.file_uploader("Upload SOP Receipt for Unloading Session (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="sop_unloading")
-                host_file = st.file_uploader("Upload HOST Receipt for Unloading Session (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="host_unloading")
+                st.markdown(f"#### 📄 Mandatory SOP & HOST Receipts for `{loading_session}`")
+                sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_sop_file")
+                host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_host_file")
 
-            submit_cash = st.form_submit_button("💾 Save Session Entry & Receipts", type="primary")
+                if st.form_submit_button(f"💾 Save {loading_session} Entry", type="primary"):
+                    sop_name = sop_file.name if sop_file else "None"
+                    host_name = host_file.name if host_file else "None"
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("""
+                                CREATE TABLE IF NOT EXISTS terminal_cash_logs (
+                                    id SERIAL PRIMARY KEY,
+                                    terminal_id VARCHAR(50),
+                                    report_date DATE,
+                                    loading_session VARCHAR(50),
+                                    load_time VARCHAR(20),
+                                    loading_total NUMERIC(15,2),
+                                    sop_receipt_path VARCHAR(255),
+                                    host_receipt_path VARCHAR(255),
+                                    logged_by VARCHAR(50),
+                                    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                    CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
+                                );
+                            """)
+                            
+                            cur.execute("""
+                                INSERT INTO terminal_cash_logs 
+                                (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (terminal_id, report_date, loading_session)
+                                DO UPDATE SET 
+                                    load_time = EXCLUDED.load_time,
+                                    loading_total = EXCLUDED.loading_total,
+                                    sop_receipt_path = EXCLUDED.sop_receipt_path,
+                                    host_receipt_path = EXCLUDED.host_receipt_path,
+                                    logged_at = CURRENT_TIMESTAMP;
+                            """, (terminal_id, report_date, loading_session, str(load_time), loading_total, sop_name, host_name, st.session_state.get("logged_user", "TESTER")))
+                            
+                            conn.commit()
+                            cur.close()
+                            conn.close()
+                            st.success(f"Successfully saved **{loading_session}** (Amount: LKR {loading_total:,.2f}) with its SOP & HOST receipts!")
+                        except Exception as e:
+                            st.error(f"Error saving loading log: {e}")
 
-            if submit_cash:
-                sop_name = sop_file.name if sop_file else "None"
-                host_name = host_file.name if host_file else "None"
-                conn = get_db_connection()
-                if conn:
-                    try:
-                        cur = conn.cursor()
-                        cur.execute("""
-                            CREATE TABLE IF NOT EXISTS terminal_cash_logs (
-                                id SERIAL PRIMARY KEY,
-                                terminal_id VARCHAR(50),
-                                report_date DATE,
-                                loading_session VARCHAR(50),
-                                load_time VARCHAR(20),
-                                loading_total NUMERIC(15,2),
-                                sop_receipt_path VARCHAR(255),
-                                host_receipt_path VARCHAR(255),
-                                logged_by VARCHAR(50),
-                                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
-                            );
-                        """)
-                        
-                        cur.execute("""
-                            INSERT INTO terminal_cash_logs 
-                            (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (terminal_id, report_date, loading_session)
-                            DO UPDATE SET 
-                                load_time = EXCLUDED.load_time,
-                                loading_total = EXCLUDED.loading_total,
-                                sop_receipt_path = EXCLUDED.sop_receipt_path,
-                                host_receipt_path = EXCLUDED.host_receipt_path,
-                                logged_at = CURRENT_TIMESTAMP;
-                        """, (terminal_id, report_date, session_type, str(load_time), loading_total, sop_name, host_name, st.session_state.get("logged_user", "TESTER")))
-                        
-                        conn.commit()
-                        cur.close()
-                        conn.close()
-                        st.success(f"Successfully recorded **{session_type}** (Total: LKR {loading_total:,.2f}) with its respective SOP & HOST receipts for Terminal `{terminal_id}`!")
-                    except Exception as e:
-                        st.error(f"Error saving cash log: {e}")
+        # -----------------------------------------------------------------
+        # SUB-TAB 2: FINAL UNLOADING SESSION
+        # -----------------------------------------------------------------
+        with cash_sub_tab2:
+            st.markdown("### Record Final Unloading & Mandatory Receipts")
+            st.info("⚠️ Complete all your testing and loading sessions first. Before final unloading, you must enter the unloading amount/time and upload both final receipts.")
+            
+            with st.form("cash_unloading_form"):
+                u_col1, u_col2 = st.columns(2)
+                with u_col1:
+                    unloading_term_id = st.text_input("Terminal ID", value="S169RB02", key="unload_term_id")
+                    unloading_date = st.date_input("Report Date", value=datetime.today(), key="unload_rep_date")
+                with u_col2:
+                    unload_time = st.time_input("Unloading Action Time", key="unload_time_val")
+                    unloading_total = st.number_input("Unloading Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="unload_amt_val")
+
+                st.markdown("---")
+                st.markdown("#### 📄 Mandatory Final Unloading Receipts (SOP & HOST)")
+                unload_sop = st.file_uploader("Upload Final SOP Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_sop_file")
+                unload_host = st.file_uploader("Upload Final HOST Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_host_file")
+
+                if st.form_submit_button("💾 Save Final Unloading & Receipts", type="primary"):
+                    sop_name = unload_sop.name if unload_sop else "None"
+                    host_name = unload_host.name if unload_host else "None"
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("""
+                                CREATE TABLE IF NOT EXISTS terminal_cash_logs (
+                                    id SERIAL PRIMARY KEY,
+                                    terminal_id VARCHAR(50),
+                                    report_date DATE,
+                                    loading_session VARCHAR(50),
+                                    load_time VARCHAR(20),
+                                    loading_total NUMERIC(15,2),
+                                    sop_receipt_path VARCHAR(255),
+                                    host_receipt_path VARCHAR(255),
+                                    logged_by VARCHAR(50),
+                                    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                    CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
+                                );
+                            """)
+                            
+                            cur.execute("""
+                                INSERT INTO terminal_cash_logs 
+                                (terminal_id, report_date, loading_session, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (terminal_id, report_date, loading_session)
+                                DO UPDATE SET 
+                                    load_time = EXCLUDED.load_time,
+                                    loading_total = EXCLUDED.loading_total,
+                                    sop_receipt_path = EXCLUDED.sop_receipt_path,
+                                    host_receipt_path = EXCLUDED.host_receipt_path,
+                                    logged_at = CURRENT_TIMESTAMP;
+                            """, (unloading_term_id, unloading_date, "Unloading Session", str(unload_time), unloading_total, sop_name, host_name, st.session_state.get("logged_user", "TESTER")))
+                            
+                            conn.commit()
+                            cur.close()
+                            conn.close()
+                            st.success(f"Successfully saved **Unloading Session** (Amount: LKR {unloading_total:,.2f}) along with both final SOP & HOST receipts!")
+                        except Exception as e:
+                            st.error(f"Error saving unloading log: {e}")
 
     # -------------------------------------------------------------------------
     # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER
