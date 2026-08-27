@@ -71,10 +71,15 @@ def render_test_execution_page():
         # --- LIVE INPUTS OUTSIDE FORM FOR REAL-TIME RRN & CALCULATION ---
         col1, col2 = st.columns(2)
         with col1:
-            stan = st.text_input("STAN / UTANO", value="260824000228220130", key="stan_input")
+            # Clean input with no hardcoded default value
+            stan = st.text_input("STAN / UTANO", placeholder="Enter STAN / UTANO here...", key="stan_input")
             
-            # Accurate RRN extraction: e.g., "260824000228220130" -> "000228220130" (taking last 12 digits or slicing index 6)
-            auto_rrn = stan[6:] if len(stan) >= 18 else (stan[-12:] if len(stan) >= 12 else stan)
+            # Dynamic RRN extraction based entirely on what you type
+            if stan and len(stan) >= 12:
+                auto_rrn = stan[-12:]
+            else:
+                auto_rrn = stan if stan else ""
+                
             rrn = st.text_input("RRN (Retrieval Reference Number - Auto)", value=auto_rrn, key="rrn_input")
 
         form_data = {}
