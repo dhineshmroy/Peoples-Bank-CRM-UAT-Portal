@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import ast
 import psycopg2
 from datetime import datetime
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -14,6 +15,178 @@ def get_db_connection():
     except Exception as e:
         st.error(f"PostgreSQL Connection Failed: {e}")
         return None
+
+def format_module_dataframe(df_raw, module_name):
+    """Maps raw database rows into the exact custom columns and title-cased headers per module."""
+    formatted_rows = []
+    
+    for _, row in df_raw.iterrows():
+        # Safely parse extra_data dictionary if stored as string
+        extra = {}
+        extra_data_val = row.get("extra_data")
+        if extra_data_val:
+            if isinstance(extra_data_val, dict):
+                extra = extra_data_val
+            elif isinstance(extra_data_val, str):
+                try:
+                    extra = ast.literal_eval(extra_data_val)
+                except Exception:
+                    extra = {}
+
+        if module_name == "GRG_CRM_Cardless_Bill_Payment":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Biller Name / Category": extra.get("biller_name", ""),
+                "Consumer / Acc / Ref No": extra.get("consumer_acc", ""),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "Bill Txn Amount (LKR)": extra.get("bill_amount", 0.0),
+                "Service Charge": extra.get("service_charge", 0.0),
+                "Actual Paid Txn Amount (LKR)": extra.get("actual_paid", 0.0),
+                "FE Status": row.get("fe_status", ""),
+                "Biller & SV Status": extra.get("biller_sv_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardless_Cash_Deposit":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Account Number": extra.get("account_number", ""),
+                "Before Txn Balance (LKR)": extra.get("before_balance", 0.0),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "After Txn Balance (LKR)": extra.get("after_balance", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardbased_Bill_Payment":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Bill Number": extra.get("bill_number", ""),
+                "Card Number": extra.get("card_number", ""),
+                "Account Number": extra.get("account_number", ""),
+                "Card Type": extra.get("card_type", ""),
+                "Before Txn Balance (LKR)": extra.get("before_balance", 0.0),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "Service Charge": extra.get("service_charge", 0.0),
+                "Actual Paid Amount (LKR)": extra.get("actual_paid", 0.0),
+                "After Txn Balance (LKR)": extra.get("after_balance", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardbased_Cash_Deposit":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Account Number": extra.get("account_number", ""),
+                "Card Type": extra.get("card_type", ""),
+                "Before Txn Balance (LKR)": extra.get("before_balance", 0.0),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "After Txn Balance (LKR)": extra.get("after_balance", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardbased_Cash_Withdraw":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Card Number": extra.get("card_number", ""),
+                "Account Number": extra.get("account_number", ""),
+                "Card Type": extra.get("card_type", ""),
+                "Before Txn Balance (LKR)": extra.get("before_balance", 0.0),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "Service Charge": extra.get("service_charge", 0.0),
+                "Actual Txn Amount (LKR)": extra.get("actual_txn", 0.0),
+                "After Txn Balance (LKR)": extra.get("after_balance", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardbased_Fund_transfer":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Card Number": extra.get("card_number", ""),
+                "Card Type": extra.get("card_type", ""),
+                "From Account Number": extra.get("from_acc", ""),
+                "To Account Number": extra.get("to_acc", ""),
+                "Before Balance From Acc (LKR)": extra.get("before_bal_from", 0.0),
+                "Before Balance To Acc (LKR)": extra.get("before_bal_to", 0.0),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "After Balance From Acc (LKR)": extra.get("after_bal_from", 0.0),
+                "After Balance To Acc (LKR)": extra.get("after_bal_to", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name in ["GRG_CRM_Cardbased_SLIC_Bill_Pay", "GRG_CRM_Cardless_SLIC_Bill_Paym"]:
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Bill Number": extra.get("bill_number", ""),
+                "Card / Biller Type": extra.get("card_type", ""),
+                "Txn Amount (LKR)": extra.get("txn_amount", 0.0),
+                "Service Charge": extra.get("service_charge", 0.0),
+                "Actual Paid Amount (LKR)": extra.get("actual_paid", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        elif module_name == "GRG_CRM_Cardbased_Mini_Statemen":
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "Card Number": extra.get("card_number", ""),
+                "Account Number": extra.get("account_number", ""),
+                "Card Type": extra.get("card_type", ""),
+                "Before Txn Balance (LKR)": extra.get("before_balance", 0.0),
+                "Service Charge": extra.get("service_charge", 0.0),
+                "Actual Txn Amount (LKR)": extra.get("actual_txn", 0.0),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+        else:
+            # Fallback standard format
+            formatted_rows.append({
+                "TC ID": row.get("tc_id", ""),
+                "Test Description": row.get("test_description", ""),
+                "RRN (Retrieval Ref)": row.get("rrn", ""),
+                "STAN / UTANO": row.get("stan_utano", ""),
+                "FE Status": row.get("fe_status", ""),
+                "Core Banking (SIBS) Status": row.get("sibs_status", ""),
+                "Overall Test Status": row.get("overall_status", ""),
+                "Expected Result / Remarks": row.get("tester_remarks", "")
+            })
+            
+    return pd.DataFrame(formatted_rows)
 
 def render_test_execution_page():
     st.title("💳 GRG CRM - Test Execution & Cash Loading Management")
@@ -39,7 +212,6 @@ def render_test_execution_page():
         st.subheader("Execute Pre-Built Test Cases (Dynamic Module Layouts)")
         selected_module = st.selectbox("Select Test Module / Feature", modules, key="exec_mod")
 
-        # Fetch pre-built test cases from Supabase
         conn = get_db_connection()
         tc_list = []
         tc_data_dict = {}
@@ -287,26 +459,34 @@ def render_test_execution_page():
                         st.error(f"Error saving cash log: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEW WITH SORTING
+    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER WITH EXACT HEADERS
     # -------------------------------------------------------------------------
     with tab_export:
         st.subheader("📊 Finance Export & Interactive Table Viewer")
         st.markdown("View, filter, sort, and download complete multi-tab execution reports styled professionally.")
 
-        # Module selector for viewing live table
-        view_module = st.selectbox("Select Module to View/Sort", modules, key="view_mod")
+        view_options = ["🌐 All Modules (Combined Master View)"] + modules
+        selected_view_option = st.selectbox("Select Module to View/Sort", view_options, key="view_mod")
         
         conn = get_db_connection()
-        df_view = pd.DataFrame()
+        df_raw = pd.DataFrame()
         if conn:
             try:
-                df_view = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{view_module}'", conn)
+                if selected_view_option == "🌐 All Modules (Combined Master View)":
+                    df_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
+                else:
+                    df_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{selected_view_option}'", conn)
                 conn.close()
             except Exception:
                 pass
 
-        if not df_view.empty:
-            st.markdown(f"### 📋 Records for `{view_module}`")
+        if not df_raw.empty:
+            if selected_view_option == "🌐 All Modules (Combined Master View)":
+                df_view = df_raw
+            else:
+                df_view = format_module_dataframe(df_raw, selected_view_option)
+
+            st.markdown(f"### 📋 Records for `{selected_view_option}`")
             
             # Interactive Sorting Options
             sort_col = st.selectbox("Sort By Column", df_view.columns.tolist(), key="sort_col")
@@ -318,7 +498,7 @@ def render_test_execution_page():
             # Display interactive dataframe table view
             st.dataframe(df_sorted, use_container_width=True)
         else:
-            st.info(f"No test execution records found for `{view_module}` yet.")
+            st.info(f"No test execution records found for `{selected_view_option}` yet.")
 
         st.markdown("---")
         st.subheader("📥 Download Styled Multi-Tab Finance Workbook")
@@ -329,13 +509,15 @@ def render_test_execution_page():
                 conn = get_db_connection()
                 if conn:
                     try:
+                        # 1. Master Tab containing all records
+                        df_all_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
+                        df_all_raw.to_excel(writer, sheet_name="All_Modules_Master", index=False, startrow=2)
+
+                        # 2. Individual Module Tabs with Exact Formatted Columns
                         for mod_name in modules:
-                            # Fetch full record details
-                            df_mod = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
-                            if df_mod.empty:
-                                df_mod = pd.DataFrame(columns=["id", "module_name", "tc_id", "test_description", "rrn", "stan_utano", "fe_status", "sibs_status", "overall_status", "tester_remarks", "executed_by", "created_at"])
-                            
-                            df_mod.to_excel(writer, sheet_name=mod_name[:31], index=False, startrow=2)
+                            df_mod_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
+                            df_formatted = format_module_dataframe(df_mod_raw, mod_name)
+                            df_formatted.to_excel(writer, sheet_name=mod_name[:31], index=False, startrow=2)
                         conn.close()
                     except Exception as e:
                         st.error(f"Error compiling export: {e}")
@@ -390,7 +572,7 @@ def render_test_execution_page():
             st.download_button(
                 label="⬇️ Download Professional Excel Report (.xlsx)",
                 data=final_output,
-                file_name=f"PeoplesBank_CRM_Finance_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                file_name=f"PeoplesBank_CRM_Finance_Master_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
