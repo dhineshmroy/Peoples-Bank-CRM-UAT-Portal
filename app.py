@@ -1814,36 +1814,23 @@ elif menu == "🛠️ Defect Tracker":
                         if conn_ins:
                             try:
                                 cur_ins = conn_ins.cursor()
-                                # Using columns that exist or are standard in your schema (falling back safely)
                                 insert_query = """
                                     INSERT INTO uat_test_executions 
-                                    (tc_id, module_name, fe_status, actual_result, fe, sibs, utano, remarks, executed_by, executed_date, defect_desc, severity, priority, defect_status, assigned_to)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    (tc_id, module_name, fe_status, remarks, executed_by, executed_date)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
                                     ON CONFLICT (tc_id, module_name) DO UPDATE SET
                                     fe_status = EXCLUDED.fe_status,
-                                    actual_result = EXCLUDED.actual_result,
-                                    defect_desc = EXCLUDED.defect_desc,
-                                    severity = EXCLUDED.severity,
-                                    priority = EXCLUDED.priority,
-                                    defect_status = EXCLUDED.defect_status,
-                                    assigned_to = EXCLUDED.assigned_to;
+                                    remarks = EXCLUDED.remarks,
+                                    executed_by = EXCLUDED.executed_by,
+                                    executed_date = EXCLUDED.executed_date;
                                 """
                                 cur_ins.execute(insert_query, (
                                     man_tc_id.strip(),
                                     man_module.strip() if man_module.strip() else "Manual_Defect_Module",
-                                    "FAIL", # Storing failure state in fe_status or matching column
+                                    "FAIL",
                                     man_desc,
-                                    "FAILED",
-                                    "PENDING",
-                                    man_utano,
-                                    man_expected,
                                     man_detected_by,
-                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    man_desc,
-                                    man_severity,
-                                    man_priority,
-                                    man_status,
-                                    man_assigned
+                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 ))
                                 conn_ins.commit()
                                 cur_ins.close()
@@ -1855,7 +1842,6 @@ elif menu == "🛠️ Defect Tracker":
                         else:
                             st.error("Could not establish a database connection.")
 
-    # Safe dataframe filtering checking whichever status column exists in your df
     if not df.empty:
         status_col = 'Status' if 'Status' in df.columns else ('fe_status' if 'fe_status' in df.columns else None)
         if status_col:
@@ -1965,23 +1951,25 @@ elif menu == "🛠️ Defect Tracker":
                 
                 d_key = f"def_{mod_name}_{tc_id}_{idx}"
                 
-                # --- DELETE DEFECT OPTION FOR TESTERS & ADMINS ---
+                # --- MARK DEFECT AS PASS (RESOLVE) INSTEAD OF DELETING ---
                 if can_execute:
-                    col_del1, col_del2 = st.columns([4, 1])
-                    with col_del2:
-                        if st.button("🗑️ Delete Defect", key=f"del_btn_{d_key}", type="secondary", use_container_width=True):
-                            conn_del = get_db_connection()
-                            if conn_del:
-                                try:
-                                    cur_del = conn_del.cursor()
-                                    cur_del.execute("DELETE FROM uat_test_executions WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
-                                    conn_del.commit()
-                                    cur_del.close()
-                                    conn_del.close()
-                                    st.success(f"Successfully deleted defect {tc_id}!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error deleting defect: {e}")
+                    if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
+                        conn_pass = get_db_connection()
+                        if conn_pass:
+                            try:
+                                cur_pass = conn_pass.cursor()
+                                cur_pass.execute("""
+                                    UPDATE uat_test_executions 
+                                    SET fe_status = 'PASS' 
+                                    WHERE tc_id = %s AND module_name = %s
+                                """, (tc_id, mod_name))
+                                conn_pass.commit()
+                                cur_pass.close()
+                                conn_pass.close()
+                                st.success(f"Successfully marked defect {tc_id} as PASS!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error updating defect status: {e}")
                     st.divider()
 
                 if is_admin:
