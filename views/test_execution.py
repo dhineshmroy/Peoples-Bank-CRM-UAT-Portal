@@ -426,7 +426,7 @@ def render_test_execution_page():
                     st.error(f"Error saving execution record: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (WITH CONSUMER/ACC/REF NO)
+    # TAB 2: CASH LOADING & UNLOADING MANAGEMENT (WITH AUTO-RETRIEVAL/PRE-FILL)
     # -------------------------------------------------------------------------
     with tab_cash:
         st.subheader("💵 Terminal Cash Loading & Unloading Tracker")
@@ -439,7 +439,6 @@ def render_test_execution_page():
         # HELPER FUNCTION: UPLOAD & OVERWRITE OLD RECEIPT
         # -----------------------------------------------------------------
         def upload_receipt_to_supabase(uploaded_file, terminal_id, session_type, receipt_type):
-            """Uploads file to Supabase storage. Overwrites any existing file for this session so only the latest is kept."""
             if not uploaded_file:
                 return "None"
             
@@ -489,8 +488,8 @@ def render_test_execution_page():
             
             c_col1, c_col2 = st.columns(2)
             with c_col1:
-                terminal_id_load = st.text_input("Terminal ID", value="S169RB02", key="load_term_id_v7")
-                report_date_load = st.date_input("Report Date", value=datetime.today(), key="load_rep_date_v7")
+                terminal_id_load = st.text_input("Terminal ID", value="S169RB02", key="load_term_id_v8")
+                report_date_load = st.date_input("Report Date", value=datetime.today(), key="load_rep_date_v8")
                 loading_session = st.selectbox(
                     "Select Loading Session", 
                     [
@@ -499,19 +498,56 @@ def render_test_execution_page():
                         "7th Cash Loading", "8th Cash Loading", "9th Cash Loading", 
                         "10th Cash Loading"
                     ],
-                    key="load_session_type_v7"
+                    key="load_session_type_v8"
                 )
 
-            with st.form("cash_loading_form_unique_v7"):
+            # --- RETRIEVE EXISTING DATA FROM DB TO PRE-FILL ---
+            existing_ref, existing_time, existing_total = "", "05:25", 0.00
+            conn_fetch = get_db_connection()
+            if conn_fetch:
+                try:
+                    cur_f = conn_fetch.cursor()
+                    cur_f.execute("""
+                        CREATE TABLE IF NOT EXISTS terminal_cash_logs (
+                            id SERIAL PRIMARY KEY,
+                            terminal_id VARCHAR(50),
+                            report_date DATE,
+                            loading_session VARCHAR(50),
+                            consumer_acc_ref VARCHAR(100),
+                            load_time VARCHAR(20),
+                            loading_total NUMERIC(15,2),
+                            sop_receipt_path TEXT,
+                            host_receipt_path TEXT,
+                            logged_by VARCHAR(50),
+                            logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
+                        );
+                    """)
+                    cur_f.execute("""
+                        SELECT consumer_acc_ref, load_time, loading_total 
+                        FROM terminal_cash_logs 
+                        WHERE terminal_id = %s AND report_date = %s AND loading_session = %s;
+                    """, (terminal_id_load, report_date_load, loading_session))
+                    row = cur_f.fetchone()
+                    if row:
+                        existing_ref = row[0] if row[0] else ""
+                        existing_time = row[1] if row[1] else "05:25"
+                        existing_total = float(row[2]) if row[2] is not None else 0.00
+                    cur_f.close()
+                    conn_fetch.close()
+                except Exception as e:
+                    pass
+
+            with st.form("cash_loading_form_unique_v8"):
                 with c_col2:
-                    consumer_acc_ref = st.text_input("Consumer / Acc / Ref No", value="", key="load_ref_no_v7")
-                    load_time = st.text_input("Loading Action Time (e.g., 05:25)", value="05:25", key="load_time_val_v7")
-                    loading_total = st.number_input("Loading Session Total Amount (LKR)", value=0.00, min_value=0.00, format="%.2f", key="load_amt_val_v7")
+                    consumer_acc_ref = st.text_input("Consumer / Acc / Ref No", value=existing_ref, key="load_ref_no_v8")
+                    load_time = st.text_input("Loading Action Time (e.g., 05:25)", value=existing_time, key="load_time_val_v8")
+                    loading_total = st.number_input("Loading Session Total Amount (LKR)", value=existing_total, min_value=0.00, format="%.2f", key="load_amt_val_v8")
 
                 st.markdown("---")
                 st.markdown(f"#### 📄 Mandatory SOP & HOST Receipts for {loading_session}")
-                sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_sop_file_v7")
-                host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_host_file_v7")
+                sop_file = st.file_uploader(f"Upload SOP Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_sop_file_v8")
+                host_file = st.file_uploader(f"Upload HOST Receipt for {loading_session} (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="load_host_file_v8")
 
                 if st.form_submit_button(f"💾 Save {loading_session} Entry", type="primary"):
                     with st.spinner("Processing receipts and updating database..."):
@@ -522,31 +558,6 @@ def render_test_execution_page():
                         if conn:
                             try:
                                 cur = conn.cursor()
-                                # Ensure table and consumer_acc_ref column exist
-                                cur.execute("""
-                                    CREATE TABLE IF NOT EXISTS terminal_cash_logs (
-                                        id SERIAL PRIMARY KEY,
-                                        terminal_id VARCHAR(50),
-                                        report_date DATE,
-                                        loading_session VARCHAR(50),
-                                        consumer_acc_ref VARCHAR(100),
-                                        load_time VARCHAR(20),
-                                        loading_total NUMERIC(15,2),
-                                        sop_receipt_path TEXT,
-                                        host_receipt_path TEXT,
-                                        logged_by VARCHAR(50),
-                                        logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                        CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
-                                    );
-                                """)
-                                cur.execute("""
-                                    ALTER TABLE terminal_cash_logs 
-                                    ADD COLUMN IF NOT EXISTS consumer_acc_ref VARCHAR(100),
-                                    ADD COLUMN IF NOT EXISTS logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                    ADD COLUMN IF NOT EXISTS sop_receipt_path TEXT,
-                                    ADD COLUMN IF NOT EXISTS host_receipt_path TEXT;
-                                """)
-                                
                                 cur.execute("""
                                     INSERT INTO terminal_cash_logs 
                                     (terminal_id, report_date, loading_session, consumer_acc_ref, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
@@ -556,8 +567,8 @@ def render_test_execution_page():
                                         consumer_acc_ref = EXCLUDED.consumer_acc_ref,
                                         load_time = EXCLUDED.load_time,
                                         loading_total = EXCLUDED.loading_total,
-                                        sop_receipt_path = EXCLUDED.sop_receipt_path,
-                                        host_receipt_path = EXCLUDED.host_receipt_path,
+                                        sop_receipt_path = CASE WHEN EXCLUDED.sop_receipt_path != 'None' THEN EXCLUDED.sop_receipt_path ELSE terminal_cash_logs.sop_receipt_path END,
+                                        host_receipt_path = CASE WHEN EXCLUDED.host_receipt_path != 'None' THEN EXCLUDED.host_receipt_path ELSE terminal_cash_logs.host_receipt_path END,
                                         logged_at = CURRENT_TIMESTAMP;
                                 """, (terminal_id_load, report_date_load, loading_session, consumer_acc_ref, str(load_time), loading_total, sop_path, host_path, st.session_state.get("logged_user", "TESTER")))
                                 
@@ -573,21 +584,42 @@ def render_test_execution_page():
         # -----------------------------------------------------------------
         with cash_sub_tab2:
             st.markdown("### Record Final Unloading Receipts")
-            st.info("⚠️ Complete all loading sessions first. Before final unloading, enter the Consumer/Acc/Ref No, action time, and upload both final unloading receipts.")
+            st.info("⚠️ Complete all loading sessions first. Enter Consumer/Acc/Ref No, action time, and upload final unloading receipts.")
             
-            with st.form("cash_unloading_form_unique_v7"):
-                u_col1, u_col2 = st.columns(2)
-                with u_col1:
-                    unloading_term_id = st.text_input("Terminal ID", value="S169RB02", key="unload_term_id_v7")
-                    unloading_date = st.date_input("Report Date", value=datetime.today(), key="unload_rep_date_v7")
+            u_col1, u_col2 = st.columns(2)
+            with u_col1:
+                unloading_term_id = st.text_input("Terminal ID", value="S169RB02", key="unload_term_id_v8")
+                unloading_date = st.date_input("Report Date", value=datetime.today(), key="unload_rep_date_v8")
+
+            # --- RETRIEVE EXISTING UNLOADING DATA FROM DB TO PRE-FILL ---
+            existing_unload_ref, existing_unload_time = "", "17:30"
+            conn_fetch_u = get_db_connection()
+            if conn_fetch_u:
+                try:
+                    cur_fu = conn_fetch_u.cursor()
+                    cur_fu.execute("""
+                        SELECT consumer_acc_ref, load_time 
+                        FROM terminal_cash_logs 
+                        WHERE terminal_id = %s AND report_date = %s AND loading_session = 'Unloading Session';
+                    """, (unloading_term_id, unloading_date))
+                    row_u = cur_fu.fetchone()
+                    if row_u:
+                        existing_unload_ref = row_u[0] if row_u[0] else ""
+                        existing_unload_time = row_u[1] if row_u[1] else "17:30"
+                    cur_fu.close()
+                    conn_fetch_u.close()
+                except Exception as e:
+                    pass
+
+            with st.form("cash_unloading_form_unique_v8"):
                 with u_col2:
-                    unload_consumer_ref = st.text_input("Consumer / Acc / Ref No", value="", key="unload_ref_no_v7")
-                    unload_time = st.text_input("Unloading Action Time (e.g., 17:30)", value="17:30", key="unload_time_val_v7")
+                    unload_consumer_ref = st.text_input("Consumer / Acc / Ref No", value=existing_unload_ref, key="unload_ref_no_v8")
+                    unload_time = st.text_input("Unloading Action Time (e.g., 17:30)", value=existing_unload_time, key="unload_time_val_v8")
 
                 st.markdown("---")
                 st.markdown("#### 📄 Mandatory Final Unloading Receipts (SOP & HOST)")
-                unload_sop = st.file_uploader("Upload Final SOP Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_sop_file_v7")
-                unload_host = st.file_uploader("Upload Final HOST Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_host_file_v7")
+                unload_sop = st.file_uploader("Upload Final SOP Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_sop_file_v8")
+                unload_host = st.file_uploader("Upload Final HOST Receipt for Unloading (.pdf, .png, .jpg)", type=["pdf", "png", "jpg"], key="unload_host_file_v8")
 
                 if st.form_submit_button("💾 Save Final Unloading Receipts", type="primary"):
                     with st.spinner("Processing unloading receipts and updating database..."):
@@ -599,30 +631,6 @@ def render_test_execution_page():
                             try:
                                 cur = conn.cursor()
                                 cur.execute("""
-                                    CREATE TABLE IF NOT EXISTS terminal_cash_logs (
-                                        id SERIAL PRIMARY KEY,
-                                        terminal_id VARCHAR(50),
-                                        report_date DATE,
-                                        loading_session VARCHAR(50),
-                                        consumer_acc_ref VARCHAR(100),
-                                        load_time VARCHAR(20),
-                                        loading_total NUMERIC(15,2),
-                                        sop_receipt_path TEXT,
-                                        host_receipt_path TEXT,
-                                        logged_by VARCHAR(50),
-                                        logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                        CONSTRAINT unique_terminal_session UNIQUE (terminal_id, report_date, loading_session)
-                                    );
-                                """)
-                                cur.execute("""
-                                    ALTER TABLE terminal_cash_logs 
-                                    ADD COLUMN IF NOT EXISTS consumer_acc_ref VARCHAR(100),
-                                    ADD COLUMN IF NOT EXISTS logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                    ADD COLUMN IF NOT EXISTS sop_receipt_path TEXT,
-                                    ADD COLUMN IF NOT EXISTS host_receipt_path TEXT;
-                                """)
-                                
-                                cur.execute("""
                                     INSERT INTO terminal_cash_logs 
                                     (terminal_id, report_date, loading_session, consumer_acc_ref, load_time, loading_total, sop_receipt_path, host_receipt_path, logged_by)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -631,8 +639,8 @@ def render_test_execution_page():
                                         consumer_acc_ref = EXCLUDED.consumer_acc_ref,
                                         load_time = EXCLUDED.load_time,
                                         loading_total = EXCLUDED.loading_total,
-                                        sop_receipt_path = EXCLUDED.sop_receipt_path,
-                                        host_receipt_path = EXCLUDED.host_receipt_path,
+                                        sop_receipt_path = CASE WHEN EXCLUDED.sop_receipt_path != 'None' THEN EXCLUDED.sop_receipt_path ELSE terminal_cash_logs.sop_receipt_path END,
+                                        host_receipt_path = CASE WHEN EXCLUDED.host_receipt_path != 'None' THEN EXCLUDED.host_receipt_path ELSE terminal_cash_logs.host_receipt_path END,
                                         logged_at = CURRENT_TIMESTAMP;
                                 """, (unloading_term_id, unloading_date, "Unloading Session", unload_consumer_ref, str(unload_time), 0.00, sop_path, host_path, st.session_state.get("logged_user", "TESTER")))
                                 
