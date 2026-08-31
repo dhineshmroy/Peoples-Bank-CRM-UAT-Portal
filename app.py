@@ -9,6 +9,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import psycopg2
 from views.test_execution import render_test_execution_page
+import base64
 
 
 
