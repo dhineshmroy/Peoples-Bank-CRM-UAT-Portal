@@ -1811,6 +1811,7 @@ elif menu == "🛠️ Defect Tracker":
                         st.error("Please provide at least a Defect ID and Description.")
                     else:
                         try:
+                            # Ensuring manual defects explicitly pass metadata columns if your backend table accepts them
                             save_test_case_to_db(
                                 tc_id=man_tc_id.strip(), 
                                 module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
@@ -1824,15 +1825,44 @@ elif menu == "🛠️ Defect Tracker":
                                 executed_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
                                 receipt_path="", 
                                 photo_path="",
-                                defect_desc=man_desc
+                                defect_desc=man_desc,
+                                path_type="Manual",
+                                severity=man_severity,
+                                priority=man_priority,
+                                defect_status=man_status,
+                                assigned_to=man_assigned
                             )
                             st.success(f"Successfully logged manual defect {man_tc_id}!")
                             st.rerun()
                         except Exception as db_err:
-                            st.error(f"Database Insert Failed: {db_err}")
+                            # Fallback if your standard save function doesn't take keyword arguments like path_type/severity yet
+                            try:
+                                save_test_case_to_db(
+                                    tc_id=man_tc_id.strip(), 
+                                    module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
+                                    status="FAIL", 
+                                    actual_result=man_desc, 
+                                    fe="FAILED", 
+                                    sibs="PENDING", 
+                                    utano=man_utano, 
+                                    remarks=man_expected, 
+                                    executed_by=man_detected_by, 
+                                    executed_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                                    receipt_path="", 
+                                    photo_path="",
+                                    defect_desc=man_desc
+                                )
+                                st.success(f"Successfully logged manual defect {man_tc_id}!")
+                                st.rerun()
+                            except Exception as fallback_err:
+                                st.error(f"Database Insert Failed: {fallback_err}")
 
+    # Broaden defect filter to catch both FAIL status and explicit Manual entries
     if not df.empty and 'Status' in df.columns:
-        defect_df = df[df['Status'] == 'FAIL'].copy()
+        if 'Path Type' in df.columns:
+            defect_df = df[(df['Status'] == 'FAIL') | (df['Path Type'] == 'Manual')].copy()
+        else:
+            defect_df = df[df['Status'] == 'FAIL'].copy()
     else:
         defect_df = pd.DataFrame()
 
@@ -1953,7 +1983,7 @@ elif menu == "🛠️ Defect Tracker":
                     st.divider()
 
                 if is_admin:
-                    st.markdown("#### ⚙️ Admin Complete Defect Editing & Matrix Panel")
+                    st.markdown("### ⚙️ Admin Complete Defect Editing & Matrix Panel")
                     
                     with st.form(key=f"admin_defect_form_{d_key}"):
                         col_a1, col_a2, col_a3 = st.columns(3)
