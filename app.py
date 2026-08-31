@@ -1810,7 +1810,6 @@ elif menu == "🛠️ Defect Tracker":
                     if not man_tc_id.strip() or not man_desc.strip():
                         st.error("Please provide at least a Defect ID and Description.")
                     else:
-                        # Save manual defect via your database utility function with status = 'FAIL'
                         save_test_case_to_db(
                             tc_id=man_tc_id.strip(), 
                             module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
@@ -1826,13 +1825,10 @@ elif menu == "🛠️ Defect Tracker":
                             photo_path="",
                             defect_desc=man_desc
                         )
-                        # Optional: If you have a specific database function for manual/extra defect fields like Severity/Priority:
-                        # update_admin_defect_metadata(...) or similar can be triggered here if needed.
                         st.success(f"Successfully logged manual defect {man_tc_id}!")
                         st.rerun()
 
     if not df.empty and 'Status' in df.columns:
-        # Only include FAIL (exclude BLOCKED and N/A)
         defect_df = df[df['Status'] == 'FAIL'].copy()
     else:
         defect_df = pd.DataFrame()
@@ -1849,7 +1845,6 @@ elif menu == "🛠️ Defect Tracker":
         with sch_col2:
             enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
 
-        # Apply search keyword filter
         if def_search_kw and not defect_df.empty:
             defect_df = defect_df[
                 defect_df['TC ID'].str.contains(def_search_kw, case=False, na=False) | 
@@ -1857,7 +1852,6 @@ elif menu == "🛠️ Defect Tracker":
                 defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).str.contains(def_search_kw, case=False, na=False)
             ]
 
-        # --- DATE FILTER CONFIGURATION FOR DEFECTS ---
         if enable_def_date_filter:
             def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
             def_date_range = None
@@ -1892,9 +1886,7 @@ elif menu == "🛠️ Defect Tracker":
         
         if is_admin:
             st.markdown("### 📥 Download Official UAT Defect Tracking Register")
-            
             excel_buffer = generate_official_defect_register_excel(defect_df)
-            
             st.download_button(
                 label="📥 Download Official UAT Defect Tracking Register (.xlsx)",
                 data=excel_buffer.getvalue(),
@@ -1924,7 +1916,7 @@ elif menu == "🛠️ Defect Tracker":
         )
         
         st.divider()
-        st.markdown("### ⚙️ Individual Defect Inspection & Admin Management")
+        st.markdown("### ⚙️ Individual Defect Inspection & Management")
 
         for idx, row in defect_df.iterrows():
             tc_id = row['TC ID']
@@ -1938,6 +1930,26 @@ elif menu == "🛠️ Defect Tracker":
                 
                 d_key = f"def_{mod_name}_{tc_id}_{idx}"
                 
+                # --- DELETE DEFECT OPTION FOR TESTERS & ADMINS ---
+                if can_execute:
+                    col_del1, col_del2 = st.columns([4, 1])
+                    with col_del2:
+                        if st.button("🗑️ Delete Defect", key=f"del_btn_{d_key}", type="secondary", use_container_width=True):
+                            # Function/SQL query to delete the execution/defect record from database
+                            conn_del = get_db_connection()
+                            if conn_del:
+                                try:
+                                    cur_del = conn_del.cursor()
+                                    cur_del.execute("DELETE FROM uat_test_executions WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                    conn_del.commit()
+                                    cur_del.close()
+                                    conn_del.close()
+                                    st.success(f"Successfully deleted defect {tc_id}!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error deleting defect: {e}")
+                    st.divider()
+
                 if is_admin:
                     st.markdown("#### ⚙️ Admin Complete Defect Editing & Matrix Panel")
                     
