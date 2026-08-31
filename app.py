@@ -1770,425 +1770,615 @@ elif menu == "🧪 Test Execution & Scenarios":
                 st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 3. DEFECT TRACKER
+# 3. DEFECT TRACKER & SCREEN ISSUES
 # ---------------------------------------------------------
 elif menu == "🛠️ Defect Tracker":
-    st.subheader("🛠️ Centralized Defect Tracker Report")
+    st.subheader("🛠️ Centralized Defect & Screen Issues Tracker")
     
     can_execute = st.session_state.authenticated_role in ["Admin / Manager", "Tester"]
     is_admin = (st.session_state.authenticated_role == "Admin / Manager")
 
-    # --- ADD MANUAL DEFECT EXPANDER (For Testers & Admins) ---
-    if can_execute:
-        with st.expander("➕ Log Manual / Out-of-Scope Defect", expanded=False):
-            st.markdown("Use this form to log defects discovered during testing that are not tied to standard pre-built test cases.")
-            
-            with st.form("manual_standalone_defect_form"):
-                m_col1, m_col2 = st.columns(2)
-                with m_col1:
-                    man_tc_id = st.text_input("Defect / Reference ID", value="DEF_001", placeholder="e.g. DEF_BILL_01")
-                    man_module = st.text_input("Module / Feature Name", placeholder="e.g. GRG_CRM_Cardless_Bill_Payment")
-                    man_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"], key="man_sev")
-                with m_col2:
-                    man_priority = st.selectbox("Priority", ["Low", "Moderate", "High"], key="man_pri")
-                    man_assigned = st.selectbox("Assigned To", ["Development Team", "Tester", "Vendor (GRG)", "Network Team"], key="man_assign")
-                    man_status = st.selectbox("Defect Status", ["Open", "In Progress", "Resolved", "Closed", "Rejected"], key="man_stat")
-                
-                man_desc = st.text_area("Defect Description", placeholder="Describe the unexpected behavior or failure...")
-                man_steps = st.text_area("Steps to Reproduce", placeholder="1. Go to...\n2. Enter...\n3. Observe error...")
-                man_expected = st.text_area("Expected Result", placeholder="What should have happened...")
-                
-                man_col3, man_col4 = st.columns(2)
-                with man_col3:
-                    man_detected_by = st.text_input("Detected By (Tester)", value=st.session_state.get("logged_user", "Tester"))
-                with man_col4:
-                    man_utano = st.text_input("UTANO / Bill Number (Optional)", value="")
+    # Create tabs for clean organization
+    tracker_tab1, tracker_tab2 = st.tabs(["📋 Standard & Manual Defects", "🎨 UI / Screen Issues (Multi-Language)"])
 
-                submitted_man_def = st.form_submit_button("🚨 Save Manual Defect to Database", use_container_width=True)
+    # ==========================================
+    # TAB 1: STANDARD & MANUAL DEFECTS
+    # ==========================================
+    with tracker_tab1:
+        # --- ADD MANUAL DEFECT EXPANDER (For Testers & Admins) ---
+        if can_execute:
+            with st.expander("➕ Log Manual / Out-of-Scope Defect", expanded=False):
+                st.markdown("Use this form to log defects discovered during testing that are not tied to standard pre-built test cases.")
                 
-                if submitted_man_def:
-                    if not man_tc_id.strip() or not man_desc.strip():
-                        st.error("Please provide at least a Defect ID and Description.")
-                    else:
-                        conn_ins = get_db_connection()
-                        if conn_ins:
-                            try:
-                                cur_ins = conn_ins.cursor()
-                                # Create separate table for manual defects if it doesn't exist
-                                cur_ins.execute("""
-                                    CREATE TABLE IF NOT EXISTS manual_defects (
-                                        tc_id VARCHAR(100),
-                                        module_name VARCHAR(255),
-                                        severity VARCHAR(50),
-                                        priority VARCHAR(50),
-                                        defect_status VARCHAR(50),
-                                        assigned_to VARCHAR(100),
-                                        defect_desc TEXT,
-                                        steps_to_reproduce TEXT,
-                                        expected_result TEXT,
-                                        detected_by VARCHAR(100),
-                                        utano VARCHAR(100),
-                                        executed_date VARCHAR(50),
-                                        PRIMARY KEY (tc_id, module_name)
-                                    );
-                                """)
-                                
-                                insert_query = """
-                                    INSERT INTO manual_defects 
-                                    (tc_id, module_name, severity, priority, defect_status, assigned_to, defect_desc, steps_to_reproduce, expected_result, detected_by, utano, executed_date)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    ON CONFLICT (tc_id, module_name) DO UPDATE SET
-                                    severity = EXCLUDED.severity,
-                                    priority = EXCLUDED.priority,
-                                    defect_status = EXCLUDED.defect_status,
-                                    assigned_to = EXCLUDED.assigned_to,
-                                    defect_desc = EXCLUDED.defect_desc,
-                                    steps_to_reproduce = EXCLUDED.steps_to_reproduce,
-                                    expected_result = EXCLUDED.expected_result,
-                                    detected_by = EXCLUDED.detected_by,
-                                    utano = EXCLUDED.utano,
-                                    executed_date = EXCLUDED.executed_date;
-                                """
-                                cur_ins.execute(insert_query, (
-                                    man_tc_id.strip(),
-                                    man_module.strip() if man_module.strip() else "Manual_Defect_Module",
-                                    man_severity,
-                                    man_priority,
-                                    man_status,
-                                    man_assigned,
-                                    man_desc,
-                                    man_steps,
-                                    man_expected,
-                                    man_detected_by,
-                                    man_utano,
-                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                ))
-                                conn_ins.commit()
-                                cur_ins.close()
-                                conn_ins.close()
-                                st.success(f"Successfully saved manual defect {man_tc_id}!")
-                                st.rerun()
-                            except Exception as db_err:
-                                st.error(f"Manual Defect Table Insert Failed: {db_err}")
+                with st.form("manual_standalone_defect_form"):
+                    m_col1, m_col2 = st.columns(2)
+                    with m_col1:
+                        man_tc_id = st.text_input("Defect / Reference ID", value="DEF_001", placeholder="e.g. DEF_BILL_01")
+                        man_module = st.text_input("Module / Feature Name", placeholder="e.g. GRG_CRM_Cardless_Bill_Payment")
+                        man_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"], key="man_sev")
+                    with m_col2:
+                        man_priority = st.selectbox("Priority", ["Low", "Moderate", "High"], key="man_pri")
+                        man_assigned = st.selectbox("Assigned To", ["Development Team", "Tester", "Vendor (GRG)", "Network Team"], key="man_assign")
+                        man_status = st.selectbox("Defect Status", ["Open", "In Progress", "Resolved", "Closed", "Rejected"], key="man_stat")
+                    
+                    man_desc = st.text_area("Defect Description", placeholder="Describe the unexpected behavior or failure...")
+                    man_steps = st.text_area("Steps to Reproduce", placeholder="1. Go to...\n2. Enter...\n3. Observe error...")
+                    man_expected = st.text_area("Expected Result", placeholder="What should have happened...")
+                    
+                    man_col3, man_col4 = st.columns(2)
+                    with man_col3:
+                        man_detected_by = st.text_input("Detected By (Tester)", value=st.session_state.get("logged_user", "Tester"))
+                    with man_col4:
+                        man_utano = st.text_input("UTANO / Bill Number (Optional)", value="")
+
+                    submitted_man_def = st.form_submit_button("🚨 Save Manual Defect to Database", use_container_width=True)
+                    
+                    if submitted_man_def:
+                        if not man_tc_id.strip() or not man_desc.strip():
+                            st.error("Please provide at least a Defect ID and Description.")
                         else:
-                            st.error("Could not establish a database connection.")
-
-    # Load standard failed test cases
-    if not df.empty:
-        status_col = 'Status' if 'Status' in df.columns else ('fe_status' if 'fe_status' in df.columns else None)
-        if status_col:
-            defect_df = df[df[status_col].astype(str).str.upper() == 'FAIL'].copy()
-        else:
-            defect_df = df.copy()
-    else:
-        defect_df = pd.DataFrame()
-
-    # Load manual defects from the separate table and append
-    conn_m = get_db_connection()
-    manual_df = pd.DataFrame()
-    if conn_m:
-        try:
-            manual_df = pd.read_sql("SELECT * FROM manual_defects", conn_m)
-            conn_m.close()
-        except Exception:
-            pass
-
-    if not manual_df.empty:
-        manual_df['Path Type'] = 'Manual'
-        manual_df['Status'] = 'FAIL'
-        manual_df['TC ID'] = manual_df['tc_id']
-        manual_df['Module Name'] = manual_df['module_name']
-        manual_df['Severity'] = manual_df['severity']
-        manual_df['Priority'] = manual_df['priority']
-        manual_df['Defect Status'] = manual_df['defect_status']
-        manual_df['Assigned To'] = manual_df['assigned_to']
-        manual_df['Defect Description'] = manual_df['defect_desc']
-        manual_df['Steps to Reproduce'] = manual_df['steps_to_reproduce']
-        manual_df['Expected Result'] = manual_df['expected_result']
-        manual_df['Executed By'] = manual_df['detected_by']
-        manual_df['Executed Date'] = manual_df['executed_date']
-        manual_df['Utano'] = manual_df['utano']
-        
-        if defect_df.empty:
-            defect_df = manual_df
-        else:
-            defect_df = pd.concat([defect_df, manual_df], ignore_index=True)
-
-    # --- SORT & SEARCH DEFECTS ---
-    if not defect_df.empty and 'TC ID' in defect_df.columns:
-        defect_df = defect_df.sort_values(by='TC ID', ascending=True).reset_index(drop=True)
-
-    if not defect_df.empty:
-        st.markdown("#### 🔍 Search & Filter Defects")
-        sch_col1, sch_col2 = st.columns([2, 2])
-        with sch_col1:
-            def_search_kw = st.text_input("Search by Defect ID (TC ID) or Description", placeholder="e.g. TC_CD_CB or Invalid", key="def_search_input")
-        with sch_col2:
-            enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
-
-        if def_search_kw and not defect_df.empty:
-            tc_col = 'TC ID' if 'TC ID' in defect_df.columns else defect_df.columns[0]
-            desc_col = 'Test Case Description' if 'Test Case Description' in defect_df.columns else tc_col
-            defect_df = defect_df[
-                defect_df[tc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
-                defect_df[desc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
-                defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).astype(str).str.contains(def_search_kw, case=False, na=False)
-            ]
-
-        if enable_def_date_filter:
-            def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
-            def_date_range = None
-            specific_def_date = None
-
-            if def_date_mode == "Date Range":
-                def_date_range = st.date_input("Select Execution Date Range", value=(date.today(), date.today()), key="def_date_rng")
-            else:
-                specific_def_date = st.date_input("Select Specific Execution Date", value=date.today(), key="def_specific_date")
-
-            def parse_dt(val):
-                if not val or pd.isna(val): return None
-                try:
-                    return pd.to_datetime(val).date()
-                except Exception:
-                    return None
-            
-            date_col = 'Executed Date' if 'Executed Date' in defect_df.columns else 'executed_date'
-            if date_col in defect_df.columns:
-                exec_dates = defect_df[date_col].apply(parse_dt)
-                if def_date_mode == "Date Range" and isinstance(def_date_range, tuple) and len(def_date_range) == 2:
-                    start_d, end_d = def_date_range
-                    mask = exec_dates.apply(lambda d: d is not None and start_d <= d <= end_d)
-                    defect_df = defect_df[mask]
-                elif def_date_mode == "Specific Date" and specific_def_date:
-                    mask = exec_dates.apply(lambda d: d is not None and d == specific_def_date)
-                    defect_df = defect_df[mask]
-
-    if defect_df.empty:
-        st.success("🎉 No failed test cases match your criteria.")
-    else:
-        st.warning(f"⚠️ Total Active Defects / Failed Tests Matching Criteria: {len(defect_df)}")
-        
-        if is_admin:
-            st.markdown("### 📥 Download Official UAT Defect Tracking Register")
-            excel_buffer = generate_official_defect_register_excel(defect_df)
-            st.download_button(
-                label="📥 Download Official UAT Defect Tracking Register (.xlsx)",
-                data=excel_buffer.getvalue(),
-                file_name=f"PeoplesBank_UAT_Defect_Tracking_Register_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            st.divider()
-
-        st.markdown("### 📋 Active Defects Overview Table")
-        
-        tracker_display_cols = [
-            'TC ID', 'Module Name', 'Path Type', 'Status', 'Severity', 
-            'Priority', 'Defect Status', 'Assigned To', 'Defect Description', 
-            'Executed By', 'Executed Date', 'Utano', 'RRN'
-        ]
-        
-        for col in tracker_display_cols:
-            if col not in defect_df.columns:
-                defect_df[col] = ""
-
-        st.dataframe(
-            defect_df[[c for c in tracker_display_cols if c in defect_df.columns]], 
-            use_container_width=True, 
-            height=350, 
-            hide_index=True
-        )
-        
-        st.divider()
-        st.markdown("### ⚙️ Individual Defect Inspection & Management")
-
-        for idx, row in defect_df.iterrows():
-            tc_id = row.get('TC ID', 'UNKNOWN')
-            mod_name = row.get('Module Name', 'UNKNOWN')
-            is_manual_defect = (str(row.get('Path Type')) == 'Manual')
-            
-            default_desc = row.get('Defect Description') if str(row.get('Defect Description', '')).strip() else row.get('Test Case Description', '')
-            default_steps = row.get('Steps to Reproduce') if str(row.get('Steps to Reproduce', '')).strip() else row.get('Test Steps', '')
-            default_expected = row.get('Expected Results') if str(row.get('Expected Results', '')).strip() else row.get('Expected Result', '')
-            
-            with st.expander(f"🔴 [{tc_id}] {default_desc} — Status: {row.get('Status', row.get('fe_status', 'FAIL'))} (Module: {mod_name})"):
-                
-                d_key = f"def_{mod_name}_{tc_id}_{idx}"
-                
-                # --- ACTION BUTTONS: Delete if Manual, Mark as Pass if Standard ---
-                if can_execute:
-                    col_act1, col_act2 = st.columns(2)
-                    with col_act1:
-                        if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
-                            if is_manual_defect:
-                                conn_pass = get_db_connection()
-                                if conn_pass:
-                                    try:
-                                        cur_pass = conn_pass.cursor()
-                                        cur_pass.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
-                                        conn_pass.commit()
-                                        cur_pass.close()
-                                        conn_pass.close()
-                                        st.success(f"Resolved and removed manual defect {tc_id}!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error resolving manual defect: {e}")
+                            conn_ins = get_db_connection()
+                            if conn_ins:
+                                try:
+                                    cur_ins = conn_ins.cursor()
+                                    cur_ins.execute("""
+                                        CREATE TABLE IF NOT EXISTS manual_defects (
+                                            tc_id VARCHAR(100),
+                                            module_name VARCHAR(255),
+                                            severity VARCHAR(50),
+                                            priority VARCHAR(50),
+                                            defect_status VARCHAR(50),
+                                            assigned_to VARCHAR(100),
+                                            defect_desc TEXT,
+                                            steps_to_reproduce TEXT,
+                                            expected_result TEXT,
+                                            detected_by VARCHAR(100),
+                                            utano VARCHAR(100),
+                                            executed_date VARCHAR(50),
+                                            PRIMARY KEY (tc_id, module_name)
+                                        );
+                                    """)
+                                    
+                                    insert_query = """
+                                        INSERT INTO manual_defects 
+                                        (tc_id, module_name, severity, priority, defect_status, assigned_to, defect_desc, steps_to_reproduce, expected_result, detected_by, utano, executed_date)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        ON CONFLICT (tc_id, module_name) DO UPDATE SET
+                                        severity = EXCLUDED.severity,
+                                        priority = EXCLUDED.priority,
+                                        defect_status = EXCLUDED.defect_status,
+                                        assigned_to = EXCLUDED.assigned_to,
+                                        defect_desc = EXCLUDED.defect_desc,
+                                        steps_to_reproduce = EXCLUDED.steps_to_reproduce,
+                                        expected_result = EXCLUDED.expected_result,
+                                        detected_by = EXCLUDED.detected_by,
+                                        utano = EXCLUDED.utano,
+                                        executed_date = EXCLUDED.executed_date;
+                                    """
+                                    cur_ins.execute(insert_query, (
+                                        man_tc_id.strip(),
+                                        man_module.strip() if man_module.strip() else "Manual_Defect_Module",
+                                        man_severity,
+                                        man_priority,
+                                        man_status,
+                                        man_assigned,
+                                        man_desc,
+                                        man_steps,
+                                        man_expected,
+                                        man_detected_by,
+                                        man_utano,
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    ))
+                                    conn_ins.commit()
+                                    cur_ins.close()
+                                    conn_ins.close()
+                                    st.success(f"Successfully saved manual defect {man_tc_id}!")
+                                    st.rerun()
+                                except Exception as db_err:
+                                    st.error(f"Manual Defect Table Insert Failed: {db_err}")
                             else:
-                                conn_pass = get_db_connection()
-                                if conn_pass:
-                                    try:
-                                        cur_pass = conn_pass.cursor()
-                                        cur_pass.execute("UPDATE uat_test_executions SET fe_status = 'PASS' WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
-                                        conn_pass.commit()
-                                        cur_pass.close()
-                                        conn_pass.close()
-                                        st.success(f"Successfully marked defect {tc_id} as PASS!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error updating defect status: {e}")
-                    
-                    with col_act2:
-                        if is_manual_defect:
-                            if st.button("🗑️ Delete Manual Defect", key=f"del_manual_{d_key}", type="secondary", use_container_width=True):
-                                conn_del = get_db_connection()
-                                if conn_del:
-                                    try:
-                                        cur_del = conn_del.cursor()
-                                        cur_del.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
-                                        conn_del.commit()
-                                        cur_del.close()
-                                        conn_del.close()
-                                        st.success(f"Successfully deleted manual defect {tc_id}!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error deleting manual defect: {e}")
-                    st.divider()
+                                st.error("Could not establish a database connection.")
 
-                if is_admin:
-                    st.markdown("### ⚙️ Admin Complete Defect Editing & Matrix Panel")
-                    
-                    with st.form(key=f"admin_defect_form_{d_key}"):
-                        col_a1, col_a2, col_a3 = st.columns(3)
-                        with col_a1:
-                            adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V1'), key=f"orig_build_{d_key}")
-                            adm_cr_ref = st.text_input("CR Reference", value=row.get('CR Reference', ''), key=f"cr_ref_{d_key}")
-                            adm_defect_cat = st.text_input("Defect Category", value=row.get('Defect Category', row.get('Category', '')), key=f"def_cat_{d_key}")
-                        with col_a2:
-                            adm_fixing_date = st.text_input("Fixing Date", value=row.get('Fixing Date', ''), key=f"fix_date_{d_key}")
-                            adm_closed_by = st.text_input("Closed By", value=row.get('Closed By', ''), key=f"closed_by_{d_key}")
-                            adm_date_closure = st.text_input("Date of Closure", value=row.get('Date of Closure', ''), key=f"date_closure_{d_key}")
-                        with col_a3:
-                            adm_sla = st.text_input("SLA", value=row.get('SLA', ''), key=f"sla_{d_key}")
-                            adm_detected_by = st.text_input("Detected By", value=row.get('Detected By', row.get('Executed By', '')), key=f"det_by_{d_key}")
-                            adm_date_origin = st.text_input("Date of Defect Origin", value=row.get('Date of Defect Origin', row.get('Executed Date', '')), key=f"det_org_{d_key}")
+        # Load standard failed test cases
+        if not df.empty:
+            status_col = 'Status' if 'Status' in df.columns else ('fe_status' if 'fe_status' in df.columns else None)
+            if status_col:
+                defect_df = df[df[status_col].astype(str).str.upper() == 'FAIL'].copy()
+            else:
+                defect_df = df.copy()
+        else:
+            defect_df = pd.DataFrame()
 
-                        adm_def_desc = st.text_area("Defect Description", value=default_desc, height=70, key=f"adm_def_desc_{d_key}")
-                        adm_steps = st.text_area("Steps to Reproduce", value=default_steps, height=70, key=f"steps_{d_key}")
-                        adm_expected = st.text_area("Expected Results", value=default_expected, height=70, key=f"adm_exp_{d_key}")
-                        adm_comments = st.text_input("Comments", value=row.get('Comments', row.get('Remarks', '')), key=f"adm_comm_{d_key}")
+        # Load manual defects from separate table and append
+        conn_m = get_db_connection()
+        manual_df = pd.DataFrame()
+        if conn_m:
+            try:
+                manual_df = pd.read_sql("SELECT * FROM manual_defects", conn_m)
+                conn_m.close()
+            except Exception:
+                pass
+
+        if not manual_df.empty:
+            manual_df['Path Type'] = 'Manual'
+            manual_df['Status'] = 'FAIL'
+            manual_df['TC ID'] = manual_df['tc_id']
+            manual_df['Module Name'] = manual_df['module_name']
+            manual_df['Severity'] = manual_df['severity']
+            manual_df['Priority'] = manual_df['priority']
+            manual_df['Defect Status'] = manual_df['defect_status']
+            manual_df['Assigned To'] = manual_df['assigned_to']
+            manual_df['Defect Description'] = manual_df['defect_desc']
+            manual_df['Steps to Reproduce'] = manual_df['steps_to_reproduce']
+            manual_df['Expected Result'] = manual_df['expected_result']
+            manual_df['Executed By'] = manual_df['detected_by']
+            manual_df['Executed Date'] = manual_df['executed_date']
+            manual_df['Utano'] = manual_df['utano']
+            
+            if defect_df.empty:
+                defect_df = manual_df
+            else:
+                defect_df = pd.concat([defect_df, manual_df], ignore_index=True)
+
+        # --- SORT & SEARCH DEFECTS ---
+        if not defect_df.empty and 'TC ID' in defect_df.columns:
+            defect_df = defect_df.sort_values(by='TC ID', ascending=True).reset_index(drop=True)
+
+        if not defect_df.empty:
+            st.markdown("#### 🔍 Search & Filter Defects")
+            sch_col1, sch_col2 = st.columns([2, 2])
+            with sch_col1:
+                def_search_kw = st.text_input("Search by Defect ID (TC ID) or Description", placeholder="e.g. TC_CD_CB or Invalid", key="def_search_input")
+            with sch_col2:
+                enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
+
+            if def_search_kw and not defect_df.empty:
+                tc_col = 'TC ID' if 'TC ID' in defect_df.columns else defect_df.columns[0]
+                desc_col = 'Test Case Description' if 'Test Case Description' in defect_df.columns else tc_col
+                defect_df = defect_df[
+                    defect_df[tc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
+                    defect_df[desc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
+                    defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).astype(str).str.contains(def_search_kw, case=False, na=False)
+                ]
+
+            if enable_def_date_filter:
+                def_date_mode = st.radio("Date Filter Mode", ["Date Range", "Specific Date"], horizontal=True, key="def_date_mode")
+                def_date_range = None
+                specific_def_date = None
+
+                if def_date_mode == "Date Range":
+                    def_date_range = st.date_input("Select Execution Date Range", value=(date.today(), date.today()), key="def_date_rng")
+                else:
+                    specific_def_date = st.date_input("Select Specific Execution Date", value=date.today(), key="def_specific_date")
+
+                def parse_dt(val):
+                    if not val or pd.isna(val): return None
+                    try:
+                        return pd.to_datetime(val).date()
+                    except Exception:
+                        return None
+                
+                date_col = 'Executed Date' if 'Executed Date' in defect_df.columns else 'executed_date'
+                if date_col in defect_df.columns:
+                    exec_dates = defect_df[date_col].apply(parse_dt)
+                    if def_date_mode == "Date Range" and isinstance(def_date_range, tuple) and len(def_date_range) == 2:
+                        start_d, end_d = def_date_range
+                        mask = exec_dates.apply(lambda d: d is not None and start_d <= d <= end_d)
+                        defect_df = defect_df[mask]
+                    elif def_date_mode == "Specific Date" and specific_def_date:
+                        mask = exec_dates.apply(lambda d: d is not None and d == specific_def_date)
+                        defect_df = defect_df[mask]
+
+        if defect_df.empty:
+            st.success("🎉 No failed test cases match your criteria.")
+        else:
+            st.warning(f"⚠️ Total Active Defects / Failed Tests Matching Criteria: {len(defect_df)}")
+            
+            if is_admin:
+                st.markdown("### 📥 Download Official UAT Defect Tracking Register")
+                excel_buffer = generate_official_defect_register_excel(defect_df)
+                st.download_button(
+                    label="📥 Download Official UAT Defect Tracking Register (.xlsx)",
+                    data=excel_buffer.getvalue(),
+                    file_name=f"PeoplesBank_UAT_Defect_Tracking_Register_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                st.divider()
+
+            st.markdown("### 📋 Active Defects Overview Table")
+            
+            tracker_display_cols = [
+                'TC ID', 'Module Name', 'Path Type', 'Status', 'Severity', 
+                'Priority', 'Defect Status', 'Assigned To', 'Defect Description', 
+                'Executed By', 'Executed Date', 'Utano', 'RRN'
+            ]
+            
+            for col in tracker_display_cols:
+                if col not in defect_df.columns:
+                    defect_df[col] = ""
+
+            st.dataframe(
+                defect_df[[c for c in tracker_display_cols if c in defect_df.columns]], 
+                use_container_width=True, 
+                height=350, 
+                hide_index=True
+            )
+            
+            st.divider()
+            st.markdown("### ⚙️ Individual Defect Inspection & Management")
+
+            for idx, row in defect_df.iterrows():
+                tc_id = row.get('TC ID', 'UNKNOWN')
+                mod_name = row.get('Module Name', 'UNKNOWN')
+                is_manual_defect = (str(row.get('Path Type')) == 'Manual')
+                
+                default_desc = row.get('Defect Description') if str(row.get('Defect Description', '')).strip() else row.get('Test Case Description', '')
+                default_steps = row.get('Steps to Reproduce') if str(row.get('Steps to Reproduce', '')).strip() else row.get('Test Steps', '')
+                default_expected = row.get('Expected Results') if str(row.get('Expected Results', '')).strip() else row.get('Expected Result', '')
+                
+                with st.expander(f"🔴 [{tc_id}] {default_desc} — Status: {row.get('Status', row.get('fe_status', 'FAIL'))} (Module: {mod_name})"):
+                    
+                    d_key = f"def_{mod_name}_{tc_id}_{idx}"
+                    
+                    if can_execute:
+                        col_act1, col_act2 = st.columns(2)
+                        with col_act1:
+                            if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
+                                if is_manual_defect:
+                                    conn_pass = get_db_connection()
+                                    if conn_pass:
+                                        try:
+                                            cur_pass = conn_pass.cursor()
+                                            cur_pass.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                            conn_pass.commit()
+                                            cur_pass.close()
+                                            conn_pass.close()
+                                            st.success(f"Resolved and removed manual defect {tc_id}!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error resolving manual defect: {e}")
+                                else:
+                                    conn_pass = get_db_connection()
+                                    if conn_pass:
+                                        try:
+                                            cur_pass = conn_pass.cursor()
+                                            cur_pass.execute("UPDATE uat_test_executions SET fe_status = 'PASS' WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                            conn_pass.commit()
+                                            cur_pass.close()
+                                            conn_pass.close()
+                                            st.success(f"Successfully marked defect {tc_id} as PASS!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error updating defect status: {e}")
                         
-                        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-                        with col_e1:
-                            adm_exec_by = st.text_input("Executed By", value=row.get('Executed By', ''), key=f"exec_{d_key}")
-                        with col_e2:
-                            adm_utano = st.text_input("Utano", value=row.get('Utano', ''), key=f"utano_{d_key}")
-                        with col_e3:
-                            adm_fe = st.text_input("FE", value=row.get('FE', ''), key=f"fe_{d_key}")
-                        with col_e4:
-                            adm_sibs = st.text_input("SIBS", value=row.get('SIBS', ''), key=f"sibs_{d_key}")
+                        with col_act2:
+                            if is_manual_defect:
+                                if st.button("🗑️ Delete Manual Defect", key=f"del_manual_{d_key}", type="secondary", use_container_width=True):
+                                    conn_del = get_db_connection()
+                                    if conn_del:
+                                        try:
+                                            cur_del = conn_del.cursor()
+                                            cur_del.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                            conn_del.commit()
+                                            cur_del.close()
+                                            conn_del.close()
+                                            st.success(f"Successfully deleted manual defect {tc_id}!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error deleting manual defect: {e}")
+                        st.divider()
+
+                    if is_admin:
+                        st.markdown("### ⚙️ Admin Complete Defect Editing & Matrix Panel")
+                        
+                        with st.form(key=f"admin_defect_form_{d_key}"):
+                            col_a1, col_a2, col_a3 = st.columns(3)
+                            with col_a1:
+                                adm_origin_build = st.text_input("Origin (Build)", value=row.get('Origin (Build)', 'CRM V1'), key=f"orig_build_{d_key}")
+                                adm_cr_ref = st.text_input("CR Reference", value=row.get('CR Reference', ''), key=f"cr_ref_{d_key}")
+                                adm_defect_cat = st.text_input("Defect Category", value=row.get('Defect Category', row.get('Category', '')), key=f"def_cat_{d_key}")
+                            with col_a2:
+                                adm_fixing_date = st.text_input("Fixing Date", value=row.get('Fixing Date', ''), key=f"fix_date_{d_key}")
+                                adm_closed_by = st.text_input("Closed By", value=row.get('Closed By', ''), key=f"closed_by_{d_key}")
+                                adm_date_closure = st.text_input("Date of Closure", value=row.get('Date of Closure', ''), key=f"date_closure_{d_key}")
+                            with col_a3:
+                                adm_sla = st.text_input("SLA", value=row.get('SLA', ''), key=f"sla_{d_key}")
+                                adm_detected_by = st.text_input("Detected By", value=row.get('Detected By', row.get('Executed By', '')), key=f"det_by_{d_key}")
+                                adm_date_origin = st.text_input("Date of Defect Origin", value=row.get('Date of Defect Origin', row.get('Executed Date', '')), key=f"det_org_{d_key}")
+
+                            adm_def_desc = st.text_area("Defect Description", value=default_desc, height=70, key=f"adm_def_desc_{d_key}")
+                            adm_steps = st.text_area("Steps to Reproduce", value=default_steps, height=70, key=f"steps_{d_key}")
+                            adm_expected = st.text_area("Expected Results", value=default_expected, height=70, key=f"adm_exp_{d_key}")
+                            adm_comments = st.text_input("Comments", value=row.get('Comments', row.get('Remarks', '')), key=f"adm_comm_{d_key}")
+                            
+                            col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                            with col_e1:
+                                adm_exec_by = st.text_input("Executed By", value=row.get('Executed By', ''), key=f"exec_{d_key}")
+                            with col_e2:
+                                adm_utano = st.text_input("Utano", value=row.get('Utano', ''), key=f"utano_{d_key}")
+                            with col_e3:
+                                adm_fe = st.text_input("FE", value=row.get('FE', ''), key=f"fe_{d_key}")
+                            with col_e4:
+                                adm_sibs = st.text_input("SIBS", value=row.get('SIBS', ''), key=f"sibs_{d_key}")
+
+                            st.divider()
+                            
+                            sev_options = ["Low", "Medium", "High", "Critical"]
+                            curr_sev = row.get('Severity', 'Medium')
+                            if curr_sev not in sev_options: curr_sev = "Medium"
+                            
+                            pri_options = ["Low", "Moderate", "High"]
+                            curr_pri = str(row.get('Priority', 'Moderate')).strip()
+                            if curr_pri in ["Medium", "medium"]: curr_pri = "Moderate"
+                            if curr_pri not in pri_options: curr_pri = "Moderate"
+                            
+                            stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
+                            curr_stat = row.get('Defect Status', 'Open')
+                            if curr_stat not in stat_options: curr_stat = "Open"
+                            
+                            assign_options = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
+                            curr_assign = row.get('Assigned To', 'Development Team')
+                            if curr_assign not in assign_options: curr_assign = "Development Team"
+
+                            col_m1, col_m2, col_m3 = st.columns(3)
+                            with col_m1:
+                                adm_severity = st.selectbox("Severity", sev_options, index=sev_options.index(curr_sev), key=f"sev_{d_key}")
+                                adm_status = st.selectbox("Defect Status", stat_options, index=stat_options.index(curr_stat), key=f"stat_{d_key}")
+                            with col_m2:
+                                adm_priority = st.selectbox("Priority", pri_options, index=pri_options.index(curr_pri), key=f"pri_{d_key}")
+                                adm_assigned = st.selectbox("Assigned To", assign_options, index=assign_options.index(curr_assign), key=f"assign_{d_key}")
+                            with col_m3:
+                                today_dt = datetime.today()
+                                try:
+                                    t_val = row.get('Target Date', '')
+                                    default_dt = datetime.strptime(t_val, "%Y-%m-%d").date() if t_val else today_dt
+                                except Exception:
+                                    default_dt = today_dt
+                                adm_target_date = st.date_input("Expected Date of Closure / Target Date", value=default_dt, key=f"tdate_{d_key}").strftime("%Y-%m-%d")
+
+                            curr_root = row.get('Root Cause', '')
+                            adm_root_cause = st.text_area("Root Cause / Developer Resolution Notes", value=curr_root, height=80, key=f"root_{d_key}")
+
+                            submitted_admin_def = st.form_submit_button(f"💾 Save All Defect Changes to Database ({tc_id})", use_container_width=True)
+
+                            if submitted_admin_def:
+                                if is_manual_defect:
+                                    conn_upd = get_db_connection()
+                                    if conn_upd:
+                                        try:
+                                            cur_upd = conn_upd.cursor()
+                                            cur_upd.execute("""
+                                                UPDATE manual_defects 
+                                                SET severity = %s, priority = %s, defect_status = %s, assigned_to = %s, 
+                                                    defect_desc = %s, steps_to_reproduce = %s, expected_result = %s, utano = %s
+                                                WHERE tc_id = %s AND module_name = %s
+                                            """, (adm_severity, adm_priority, adm_status, adm_assigned, adm_def_desc, adm_steps, adm_expected, adm_utano, tc_id, mod_name))
+                                            conn_upd.commit()
+                                            cur_upd.close()
+                                            conn_upd.close()
+                                            st.success(f"Manual defect updated successfully for {tc_id}!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error updating manual defect: {e}")
+                                else:
+                                    admin_update_full_defect_details(
+                                        tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
+                                        fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
+                                        assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
+                                        defect_desc=adm_def_desc
+                                    )
+                                    st.success(f"Defect report updated successfully for {tc_id}!")
+                                    st.rerun()
+                    else:
+                        c_inf1, c_inf2 = st.columns(2)
+                        with c_inf1:
+                            st.markdown("**Defect Description:**")
+                            st.info(default_desc)
+                            st.markdown("**Steps to Reproduce:**")
+                            st.warning(default_steps)
+                            st.markdown("**Expected Results:**")
+                            st.success(default_expected)
+                        with c_inf2:
+                            st.markdown(f"**Detected By:** `{row.get('Detected By', row.get('Executed By', ''))}` | **Date of Defect Origin:** `{row.get('Date of Defect Origin', row.get('Executed Date', ''))}`")
+                            st.markdown(f"**Application / Module:** `{mod_name}` | **Comments:** `{row.get('Comments', row.get('Remarks', ''))}`")
+                            st.markdown(f"**Utano:** `{row.get('Utano', '')}` | **RRN:** `{row.get('RRN', '')}` | **FE:** `{row.get('FE', '')}` | **SIBS:** `{row.get('SIBS', '')}`")
 
                         st.divider()
+                        st.markdown("#### 📋 Defect Matrix Details")
+                        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+                        col_r1.metric("Severity", row.get('Severity') if row.get('Severity') else "Unassigned")
+                        col_r2.metric("Priority", row.get('Priority') if row.get('Priority') else "Unassigned")
+                        col_r3.metric("Defect Status", row.get('Defect Status') if row.get('Defect Status') else "Open")
+                        col_r4.metric("Assigned To", row.get('Assigned To') if row.get('Assigned To') else "Unassigned")
                         
-                        sev_options = ["Low", "Medium", "High", "Critical"]
-                        curr_sev = row.get('Severity', 'Medium')
-                        if curr_sev not in sev_options: curr_sev = "Medium"
-                        
-                        pri_options = ["Low", "Moderate", "High"]
-                        curr_pri = str(row.get('Priority', 'Moderate')).strip()
-                        if curr_pri in ["Medium", "medium"]: curr_pri = "Moderate"
-                        if curr_pri not in pri_options: curr_pri = "Moderate"
-                        
-                        stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
-                        curr_stat = row.get('Defect Status', 'Open')
-                        if curr_stat not in stat_options: curr_stat = "Open"
-                        
-                        assign_options = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
-                        curr_assign = row.get('Assigned To', 'Development Team')
-                        if curr_assign not in assign_options: curr_assign = "Development Team"
+                        if row.get('Root Cause'):
+                            st.info(f"**Root Cause / Resolution Notes:** {row['Root Cause']}")
 
-                        col_m1, col_m2, col_m3 = st.columns(3)
-                        with col_m1:
-                            adm_severity = st.selectbox("Severity", sev_options, index=sev_options.index(curr_sev), key=f"sev_{d_key}")
-                            adm_status = st.selectbox("Defect Status", stat_options, index=stat_options.index(curr_stat), key=f"stat_{d_key}")
-                        with col_m2:
-                            adm_priority = st.selectbox("Priority", pri_options, index=pri_options.index(curr_pri), key=f"pri_{d_key}")
-                            adm_assigned = st.selectbox("Assigned To", assign_options, index=assign_options.index(curr_assign), key=f"assign_{d_key}")
-                        with col_m3:
-                            today_dt = datetime.today()
-                            try:
-                                t_val = row.get('Target Date', '')
-                                default_dt = datetime.strptime(t_val, "%Y-%m-%d").date() if t_val else today_dt
-                            except Exception:
-                                default_dt = today_dt
-                            adm_target_date = st.date_input("Expected Date of Closure / Target Date", value=default_dt, key=f"tdate_{d_key}").strftime("%Y-%m-%d")
+    # ==========================================
+    # TAB 2: UI / SCREEN ISSUES (MULTI-LANGUAGE)
+    # ==========================================
+    with tracker_tab2:
+        st.markdown("### 🎨 UI, Layout & Multi-Language Screen Issues Tracker")
+        st.markdown("Log visual UI defects, alignment issues, text typos, and translation errors across **English, Sinhala, and Tamil** interfaces with up to 3 screenshot proofs.")
 
-                        curr_root = row.get('Root Cause', '')
-                        adm_root_cause = st.text_area("Root Cause / Developer Resolution Notes", value=curr_root, height=80, key=f"root_{d_key}")
+        if can_execute:
+            with st.expander("➕ Log New Screen / UI Issue", expanded=False):
+                with st.form("screen_issue_form"):
+                    sc_col1, sc_col2 = st.columns(2)
+                    with sc_col1:
+                        scr_id = st.text_input("Screen Issue ID", value="UI_DEF_01", placeholder="e.g. UI_BILL_01")
+                        scr_module = st.text_input("Module / Feature Name", placeholder="e.g. Cardless Bill Payment")
+                        scr_name = st.text_input("Screen Name / Component", placeholder="e.g. Bill Summary Modal")
+                    with sc_col2:
+                        scr_lang = st.selectbox("Language Affected", ["English", "Sinhala", "Tamil", "All Languages (Multilingual)"])
+                        scr_type = st.selectbox("Issue Type", ["UI Layout / Overflow", "Alignment Issue", "Translation / Typo Error", "Font / Styling Issue", "Missing UI Element", "Other"])
+                        scr_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"], key="scr_sev")
 
-                        submitted_admin_def = st.form_submit_button(f"💾 Save All Defect Changes to Database ({tc_id})", use_container_width=True)
-
-                        if submitted_admin_def:
-                            if is_manual_defect:
-                                conn_upd = get_db_connection()
-                                if conn_upd:
-                                    try:
-                                        cur_upd = conn_upd.cursor()
-                                        cur_upd.execute("""
-                                            UPDATE manual_defects 
-                                            SET severity = %s, priority = %s, defect_status = %s, assigned_to = %s, 
-                                                defect_desc = %s, steps_to_reproduce = %s, expected_result = %s, utano = %s
-                                            WHERE tc_id = %s AND module_name = %s
-                                        """, (adm_severity, adm_priority, adm_status, adm_assigned, adm_def_desc, adm_steps, adm_expected, adm_utano, tc_id, mod_name))
-                                        conn_upd.commit()
-                                        cur_upd.close()
-                                        conn_upd.close()
-                                        st.success(f"Manual defect updated successfully for {tc_id}!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error updating manual defect: {e}")
-                            else:
-                                admin_update_full_defect_details(
-                                    tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
-                                    fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
-                                    assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
-                                    defect_desc=adm_def_desc
-                                )
-                                st.success(f"Defect report updated successfully for {tc_id}!")
-                                st.rerun()
-                else:
-                    c_inf1, c_inf2 = st.columns(2)
-                    with c_inf1:
-                        st.markdown("**Defect Description:**")
-                        st.info(default_desc)
-                        st.markdown("**Steps to Reproduce:**")
-                        st.warning(default_steps)
-                        st.markdown("**Expected Results:**")
-                        st.success(default_expected)
-                    with c_inf2:
-                        st.markdown(f"**Detected By:** `{row.get('Detected By', row.get('Executed By', ''))}` | **Date of Defect Origin:** `{row.get('Date of Defect Origin', row.get('Executed Date', ''))}`")
-                        st.markdown(f"**Application / Module:** `{mod_name}` | **Comments:** `{row.get('Comments', row.get('Remarks', ''))}`")
-                        st.markdown(f"**Utano:** `{row.get('Utano', '')}` | **RRN:** `{row.get('RRN', '')}` | **FE:** `{row.get('FE', '')}` | **SIBS:** `{row.get('SIBS', '')}`")
-
-                    st.divider()
-                    st.markdown("#### 📋 Defect Matrix Details")
-                    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-                    col_r1.metric("Severity", row.get('Severity') if row.get('Severity') else "Unassigned")
-                    col_r2.metric("Priority", row.get('Priority') if row.get('Priority') else "Unassigned")
-                    col_r3.metric("Defect Status", row.get('Defect Status') if row.get('Defect Status') else "Open")
-                    col_r4.metric("Assigned To", row.get('Assigned To') if row.get('Assigned To') else "Unassigned")
+                    scr_desc = st.text_area("Issue Description", placeholder="Describe what looks incorrect on the screen...")
+                    scr_dev_notes = st.text_area("Developer Explanation / Fix Instructions", placeholder="Explain clearly to the developer how to fix this (e.g., 'In Sinhala translation label, adjust CSS flexbox margin or wrap text to avoid truncation...')")
                     
-                    if row.get('Root Cause'):
-                        st.info(f"**Root Cause / Resolution Notes:** {row['Root Cause']}")
+                    st.markdown("---")
+                    st.markdown("### 📸 Upload Screenshots (Maximum 3 Photos)")
+                    uploaded_photos = st.file_uploader("Upload up to 3 screenshots showing the UI/Screen issue", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="scr_photos")
+
+                    submitted_scr = st.form_submit_button("🚨 Save Screen Issue to Database", use_container_width=True)
+
+                    if submitted_scr:
+                        if not scr_id.strip() or not scr_desc.strip():
+                            st.error("Please provide at least a Screen Issue ID and Description.")
+                        else:
+                            # Process up to 3 uploaded images into base64 text strings
+                            img1_b64, img2_b64, img3_b64 = "", "", ""
+                            if uploaded_photos:
+                                files_to_store = uploaded_photos[:3]
+                                if len(files_to_store) > 0:
+                                    img1_b64 = base64.b64encode(files_to_store[0].getvalue()).decode("utf-8")
+                                if len(files_to_store) > 1:
+                                    img2_b64 = base64.b64encode(files_to_store[1].getvalue()).decode("utf-8")
+                                if len(files_to_store) > 2:
+                                    img3_b64 = base64.b64encode(files_to_store[2].getvalue()).decode("utf-8")
+
+                            conn_s = get_db_connection()
+                            if conn_s:
+                                try:
+                                    cur_s = conn_s.cursor()
+                                    cur_s.execute("""
+                                        CREATE TABLE IF NOT EXISTS screen_issues (
+                                            issue_id VARCHAR(100),
+                                            module_name VARCHAR(255),
+                                            screen_name VARCHAR(255),
+                                            language VARCHAR(50),
+                                            issue_type VARCHAR(100),
+                                            severity VARCHAR(50),
+                                            description TEXT,
+                                            developer_notes TEXT,
+                                            detected_by VARCHAR(100),
+                                            created_at VARCHAR(50),
+                                            image1 TEXT,
+                                            image2 TEXT,
+                                            image3 TEXT,
+                                            PRIMARY KEY (issue_id, module_name)
+                                        );
+                                    """)
+
+                                    insert_scr_query = """
+                                        INSERT INTO screen_issues 
+                                        (issue_id, module_name, screen_name, language, issue_type, severity, description, developer_notes, detected_by, created_at, image1, image2, image3)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        ON CONFLICT (issue_id, module_name) DO UPDATE SET
+                                        screen_name = EXCLUDED.screen_name,
+                                        language = EXCLUDED.language,
+                                        issue_type = EXCLUDED.issue_type,
+                                        severity = EXCLUDED.severity,
+                                        description = EXCLUDED.description,
+                                        developer_notes = EXCLUDED.developer_notes,
+                                        detected_by = EXCLUDED.detected_by,
+                                        created_at = EXCLUDED.created_at,
+                                        image1 = CASE WHEN EXCLUDED.image1 <> '' THEN EXCLUDED.image1 ELSE screen_issues.image1 END,
+                                        image2 = CASE WHEN EXCLUDED.image2 <> '' THEN EXCLUDED.image2 ELSE screen_issues.image2 END,
+                                        image3 = CASE WHEN EXCLUDED.image3 <> '' THEN EXCLUDED.image3 ELSE screen_issues.image3 END;
+                                    """
+                                    cur_s.execute(insert_scr_query, (
+                                        scr_id.strip(),
+                                        scr_module.strip() if scr_module.strip() else "General_UI",
+                                        scr_name.strip() if scr_name.strip() else "Main Screen",
+                                        scr_lang,
+                                        scr_type,
+                                        scr_severity,
+                                        scr_desc,
+                                        scr_dev_notes,
+                                        st.session_state.get("logged_user", "Tester"),
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        img1_b64,
+                                        img2_b64,
+                                        img3_b64
+                                    ))
+                                    conn_s.commit()
+                                    cur_s.close()
+                                    conn_s.close()
+                                    st.success(f"Successfully saved screen issue {scr_id}!")
+                                    st.rerun()
+                                except Exception as db_err:
+                                    st.error(f"Screen Issue Insert Failed: {db_err}")
+                            else:
+                                st.error("Could not establish database connection.")
+
+        # Load & display screen issues from database
+        conn_fetch_s = get_db_connection()
+        screen_df = pd.DataFrame()
+        if conn_fetch_s:
+            try:
+                screen_df = pd.read_sql("SELECT * FROM screen_issues", conn_fetch_s)
+                conn_fetch_s.close()
+            except Exception:
+                pass
+
+        if screen_df.empty:
+            st.info("ℹ️ No screen / UI issues logged yet.")
+        else:
+            st.warning(f"⚠️ Total Logged Screen / UI Issues: {len(screen_df)}")
+            
+            for idx, row in screen_df.iterrows():
+                s_id = row.get('issue_id', 'UI_DEF')
+                s_mod = row.get('module_name', '')
+                s_screen = row.get('screen_name', '')
+                s_lang = row.get('language', '')
+                s_type = row.get('issue_type', '')
+                s_sev = row.get('severity', 'Medium')
+                s_desc = row.get('description', '')
+                s_notes = row.get('developer_notes', '')
+                s_by = row.get('detected_by', '')
+                s_date = row.get('created_at', '')
+
+                with st.expander(f"🎨 [{s_id}] {s_type} — Screen: {s_screen} ({s_lang}) | Severity: {s_sev}"):
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.markdown(f"**Module:** `{s_mod}`")
+                        st.markdown(f"**Screen / Component:** `{s_screen}`")
+                        st.markdown(f"**Language:** `{s_lang}`")
+                        st.markdown(f"**Issue Type:** `{s_type}`")
+                    with col_info2:
+                        st.markdown(f"**Severity:** `{s_sev}`")
+                        st.markdown(f"**Detected By:** `{s_by}`")
+                        st.markdown(f"**Logged At:** `{s_date}`")
+
+                    st.markdown("---")
+                    st.markdown("**📝 Issue Description:**")
+                    st.info(s_desc)
+
+                    if s_notes:
+                        st.markdown("**💡 Developer Explanation & Fix Instructions:**")
+                        st.success(s_notes)
+
+                    # Display uploaded photos (up to 3)
+                    img_cols = st.columns(3)
+                    img_fields = ['image1', 'image2', 'image3']
+                    for i, img_field in enumerate(img_fields):
+                        img_data_str = row.get(img_field, "")
+                        if img_data_str and str(img_data_str).strip() != "":
+                            with img_cols[i]:
+                                try:
+                                    decoded_bytes = base64.b64decode(img_data_str)
+                                    st.image(decoded_bytes, caption=f"Proof {i+1} ({s_id})", use_container_width=True)
+                                except Exception:
+                                    pass
+
+                    st.markdown("---")
+                    if can_execute:
+                        if st.button(f"🗑️ Delete Screen Issue ({s_id})", key=f"del_screen_{s_id}_{idx}", type="secondary"):
+                            conn_del_s = get_db_connection()
+                            if conn_del_s:
+                                try:
+                                    cur_ds = conn_del_s.cursor()
+                                    cur_ds.execute("DELETE FROM screen_issues WHERE issue_id = %s AND module_name = %s", (s_id, s_mod))
+                                    conn_del_s.commit()
+                                    cur_ds.close()
+                                    conn_del_s.close()
+                                    st.success(f"Successfully deleted screen issue {s_id}!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error deleting screen issue: {e}")
 
 # ---------------------------------------------------------
 # 4. ADMIN MANAGEMENT
