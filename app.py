@@ -1775,6 +1775,62 @@ elif menu == "🧪 Test Execution & Scenarios":
 elif menu == "🛠️ Defect Tracker":
     st.subheader("🛠️ Centralized Defect Tracker Report")
     
+    can_execute = st.session_state.authenticated_role in ["Admin / Manager", "Tester"]
+    is_admin = (st.session_state.authenticated_role == "Admin / Manager")
+
+    # --- ADD MANUAL DEFECT EXPANDER (For Testers & Admins) ---
+    if can_execute:
+        with st.expander("➕ Log Manual / Out-of-Scope Defect", expanded=False):
+            st.markdown("Use this form to log defects discovered during testing that are not tied to standard pre-built test cases.")
+            
+            with st.form("manual_standalone_defect_form"):
+                m_col1, m_col2 = st.columns(2)
+                with m_col1:
+                    man_tc_id = st.text_input("Defect / Reference ID", value="DEF_001", placeholder="e.g. DEF_BILL_01")
+                    man_module = st.text_input("Module / Feature Name", placeholder="e.g. GRG_CRM_Cardless_Bill_Payment")
+                    man_severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"], key="man_sev")
+                with m_col2:
+                    man_priority = st.selectbox("Priority", ["Low", "Moderate", "High"], key="man_pri")
+                    man_assigned = st.selectbox("Assigned To", ["Development Team", "Tester", "Vendor (GRG)", "Network Team"], key="man_assign")
+                    man_status = st.selectbox("Defect Status", ["Open", "In Progress", "Resolved", "Closed", "Rejected"], key="man_stat")
+                
+                man_desc = st.text_area("Defect Description", placeholder="Describe the unexpected behavior or failure...")
+                man_steps = st.text_area("Steps to Reproduce", placeholder="1. Go to...\n2. Enter...\n3. Observe error...")
+                man_expected = st.text_area("Expected Result", placeholder="What should have happened...")
+                
+                man_col3, man_col4 = st.columns(2)
+                with man_col3:
+                    man_detected_by = st.text_input("Detected By (Tester)", value=st.session_state.get("logged_user", "Tester"))
+                with man_col4:
+                    man_utano = st.text_input("UTANO / Bill Number (Optional)", value="")
+
+                submitted_man_def = st.form_submit_button("🚨 Save Manual Defect to Database", use_container_width=True)
+                
+                if submitted_man_def:
+                    if not man_tc_id.strip() or not man_desc.strip():
+                        st.error("Please provide at least a Defect ID and Description.")
+                    else:
+                        # Save manual defect via your database utility function with status = 'FAIL'
+                        save_test_case_to_db(
+                            tc_id=man_tc_id.strip(), 
+                            module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
+                            status="FAIL", 
+                            actual_result=man_desc, 
+                            fe="FAILED", 
+                            sibs="PENDING", 
+                            utano=man_utano, 
+                            remarks=man_expected, 
+                            executed_by=man_detected_by, 
+                            executed_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                            receipt_path="", 
+                            photo_path="",
+                            defect_desc=man_desc
+                        )
+                        # Optional: If you have a specific database function for manual/extra defect fields like Severity/Priority:
+                        # update_admin_defect_metadata(...) or similar can be triggered here if needed.
+                        st.success(f"Successfully logged manual defect {man_tc_id}!")
+                        st.rerun()
+
     if not df.empty and 'Status' in df.columns:
         # Only include FAIL (exclude BLOCKED and N/A)
         defect_df = df[df['Status'] == 'FAIL'].copy()
@@ -1797,7 +1853,7 @@ elif menu == "🛠️ Defect Tracker":
         if def_search_kw and not defect_df.empty:
             defect_df = defect_df[
                 defect_df['TC ID'].str.contains(def_search_kw, case=False, na=False) | 
-                defect_df['Test Case Description'].str.contains(def_search_kw, case=False, na=False) |
+                defect_df['Test Case Description'].str.contains(def_search_kw, case=False, na=False) | 
                 defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).str.contains(def_search_kw, case=False, na=False)
             ]
 
@@ -1833,8 +1889,6 @@ elif menu == "🛠️ Defect Tracker":
         st.success("🎉 No failed test cases match your criteria.")
     else:
         st.warning(f"⚠️ Total Active Defects / Failed Tests Matching Criteria: {len(defect_df)}")
-        
-        is_admin = (st.session_state.authenticated_role == "Admin / Manager")
         
         if is_admin:
             st.markdown("### 📥 Download Official UAT Defect Tracking Register")
@@ -1876,7 +1930,6 @@ elif menu == "🛠️ Defect Tracker":
             tc_id = row['TC ID']
             mod_name = row['Module Name']
             
-            # Fallbacks to ensure descriptions and steps are never empty
             default_desc = row.get('Defect Description') if str(row.get('Defect Description', '')).strip() else row.get('Test Case Description', '')
             default_steps = row.get('Steps to Reproduce') if str(row.get('Steps to Reproduce', '')).strip() else row.get('Test Steps', '')
             default_expected = row.get('Expected Results') if str(row.get('Expected Results', '')).strip() else row.get('Expected Result', '')
@@ -1888,7 +1941,6 @@ elif menu == "🛠️ Defect Tracker":
                 if is_admin:
                     st.markdown("#### ⚙️ Admin Complete Defect Editing & Matrix Panel")
                     
-                    # Wrap admin edit panel inside an st.form so input values are properly captured and saved on button click
                     with st.form(key=f"admin_defect_form_{d_key}"):
                         col_a1, col_a2, col_a3 = st.columns(3)
                         with col_a1:
@@ -1927,10 +1979,8 @@ elif menu == "🛠️ Defect Tracker":
                         
                         pri_options = ["Low", "Moderate", "High"]
                         curr_pri = str(row.get('Priority', 'Moderate')).strip()
-                        if curr_pri in ["Medium", "medium"]:
-                            curr_pri = "Moderate"
-                        if curr_pri not in pri_options: 
-                            curr_pri = "Moderate"
+                        if curr_pri in ["Medium", "medium"]: curr_pri = "Moderate"
+                        if curr_pri not in pri_options: curr_pri = "Moderate"
                         
                         stat_options = ["Open", "In Progress", "Resolved", "Closed", "Rejected"]
                         curr_stat = row.get('Defect Status', 'Open')
