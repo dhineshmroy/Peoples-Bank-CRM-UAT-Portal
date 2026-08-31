@@ -1814,33 +1814,66 @@ elif menu == "🛠️ Defect Tracker":
                         if conn_ins:
                             try:
                                 cur_ins = conn_ins.cursor()
-                                # Using only core columns confirmed to exist in your table schema
+                                # Create separate table for manual defects if it doesn't exist
+                                cur_ins.execute("""
+                                    CREATE TABLE IF NOT EXISTS manual_defects (
+                                        tc_id VARCHAR(100),
+                                        module_name VARCHAR(255),
+                                        severity VARCHAR(50),
+                                        priority VARCHAR(50),
+                                        defect_status VARCHAR(50),
+                                        assigned_to VARCHAR(100),
+                                        defect_desc TEXT,
+                                        steps_to_reproduce TEXT,
+                                        expected_result TEXT,
+                                        detected_by VARCHAR(100),
+                                        utano VARCHAR(100),
+                                        executed_date VARCHAR(50),
+                                        PRIMARY KEY (tc_id, module_name)
+                                    );
+                                """)
+                                
                                 insert_query = """
-                                    INSERT INTO uat_test_executions 
-                                    (tc_id, module_name, fe_status, executed_by, executed_date)
-                                    VALUES (%s, %s, %s, %s, %s)
+                                    INSERT INTO manual_defects 
+                                    (tc_id, module_name, severity, priority, defect_status, assigned_to, defect_desc, steps_to_reproduce, expected_result, detected_by, utano, executed_date)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     ON CONFLICT (tc_id, module_name) DO UPDATE SET
-                                    fe_status = EXCLUDED.fe_status,
-                                    executed_by = EXCLUDED.executed_by,
+                                    severity = EXCLUDED.severity,
+                                    priority = EXCLUDED.priority,
+                                    defect_status = EXCLUDED.defect_status,
+                                    assigned_to = EXCLUDED.assigned_to,
+                                    defect_desc = EXCLUDED.defect_desc,
+                                    steps_to_reproduce = EXCLUDED.steps_to_reproduce,
+                                    expected_result = EXCLUDED.expected_result,
+                                    detected_by = EXCLUDED.detected_by,
+                                    utano = EXCLUDED.utano,
                                     executed_date = EXCLUDED.executed_date;
                                 """
                                 cur_ins.execute(insert_query, (
                                     man_tc_id.strip(),
                                     man_module.strip() if man_module.strip() else "Manual_Defect_Module",
-                                    "FAIL",
+                                    man_severity,
+                                    man_priority,
+                                    man_status,
+                                    man_assigned,
+                                    man_desc,
+                                    man_steps,
+                                    man_expected,
                                     man_detected_by,
+                                    man_utano,
                                     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 ))
                                 conn_ins.commit()
                                 cur_ins.close()
                                 conn_ins.close()
-                                st.success(f"Successfully saved manual defect {man_tc_id} to database!")
+                                st.success(f"Successfully saved manual defect {man_tc_id}!")
                                 st.rerun()
                             except Exception as db_err:
-                                st.error(f"Direct Database Insert Failed: {db_err}")
+                                st.error(f"Manual Defect Table Insert Failed: {db_err}")
                         else:
                             st.error("Could not establish a database connection.")
 
+    # Load standard failed test cases
     if not df.empty:
         status_col = 'Status' if 'Status' in df.columns else ('fe_status' if 'fe_status' in df.columns else None)
         if status_col:
@@ -1849,6 +1882,37 @@ elif menu == "🛠️ Defect Tracker":
             defect_df = df.copy()
     else:
         defect_df = pd.DataFrame()
+
+    # Load manual defects from the separate table and append
+    conn_m = get_db_connection()
+    manual_df = pd.DataFrame()
+    if conn_m:
+        try:
+            manual_df = pd.read_sql("SELECT * FROM manual_defects", conn_m)
+            conn_m.close()
+        except Exception:
+            pass
+
+    if not manual_df.empty:
+        manual_df['Path Type'] = 'Manual'
+        manual_df['Status'] = 'FAIL'
+        manual_df['TC ID'] = manual_df['tc_id']
+        manual_df['Module Name'] = manual_df['module_name']
+        manual_df['Severity'] = manual_df['severity']
+        manual_df['Priority'] = manual_df['priority']
+        manual_df['Defect Status'] = manual_df['defect_status']
+        manual_df['Assigned To'] = manual_df['assigned_to']
+        manual_df['Defect Description'] = manual_df['defect_desc']
+        manual_df['Steps to Reproduce'] = manual_df['steps_to_reproduce']
+        manual_df['Expected Result'] = manual_df['expected_result']
+        manual_df['Executed By'] = manual_df['detected_by']
+        manual_df['Executed Date'] = manual_df['executed_date']
+        manual_df['Utano'] = manual_df['utano']
+        
+        if defect_df.empty:
+            defect_df = manual_df
+        else:
+            defect_df = pd.concat([defect_df, manual_df], ignore_index=True)
 
     # --- SORT & SEARCH DEFECTS ---
     if not defect_df.empty and 'TC ID' in defect_df.columns:
@@ -1941,6 +2005,7 @@ elif menu == "🛠️ Defect Tracker":
         for idx, row in defect_df.iterrows():
             tc_id = row.get('TC ID', 'UNKNOWN')
             mod_name = row.get('Module Name', 'UNKNOWN')
+            is_manual_defect = (str(row.get('Path Type')) == 'Manual')
             
             default_desc = row.get('Defect Description') if str(row.get('Defect Description', '')).strip() else row.get('Test Case Description', '')
             default_steps = row.get('Steps to Reproduce') if str(row.get('Steps to Reproduce', '')).strip() else row.get('Test Steps', '')
@@ -1950,25 +2015,53 @@ elif menu == "🛠️ Defect Tracker":
                 
                 d_key = f"def_{mod_name}_{tc_id}_{idx}"
                 
-                # --- MARK DEFECT AS PASS (RESOLVE) ---
+                # --- ACTION BUTTONS: Delete if Manual, Mark as Pass if Standard ---
                 if can_execute:
-                    if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
-                        conn_pass = get_db_connection()
-                        if conn_pass:
-                            try:
-                                cur_pass = conn_pass.cursor()
-                                cur_pass.execute("""
-                                    UPDATE uat_test_executions 
-                                    SET fe_status = 'PASS' 
-                                    WHERE tc_id = %s AND module_name = %s
-                                """, (tc_id, mod_name))
-                                conn_pass.commit()
-                                cur_pass.close()
-                                conn_pass.close()
-                                st.success(f"Successfully marked defect {tc_id} as PASS!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error updating defect status: {e}")
+                    col_act1, col_act2 = st.columns(2)
+                    with col_act1:
+                        if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
+                            if is_manual_defect:
+                                conn_pass = get_db_connection()
+                                if conn_pass:
+                                    try:
+                                        cur_pass = conn_pass.cursor()
+                                        cur_pass.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                        conn_pass.commit()
+                                        cur_pass.close()
+                                        conn_pass.close()
+                                        st.success(f"Resolved and removed manual defect {tc_id}!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error resolving manual defect: {e}")
+                            else:
+                                conn_pass = get_db_connection()
+                                if conn_pass:
+                                    try:
+                                        cur_pass = conn_pass.cursor()
+                                        cur_pass.execute("UPDATE uat_test_executions SET fe_status = 'PASS' WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                        conn_pass.commit()
+                                        cur_pass.close()
+                                        conn_pass.close()
+                                        st.success(f"Successfully marked defect {tc_id} as PASS!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error updating defect status: {e}")
+                    
+                    with col_act2:
+                        if is_manual_defect:
+                            if st.button("🗑️ Delete Manual Defect", key=f"del_manual_{d_key}", type="secondary", use_container_width=True):
+                                conn_del = get_db_connection()
+                                if conn_del:
+                                    try:
+                                        cur_del = conn_del.cursor()
+                                        cur_del.execute("DELETE FROM manual_defects WHERE tc_id = %s AND module_name = %s", (tc_id, mod_name))
+                                        conn_del.commit()
+                                        cur_del.close()
+                                        conn_del.close()
+                                        st.success(f"Successfully deleted manual defect {tc_id}!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting manual defect: {e}")
                     st.divider()
 
                 if is_admin:
@@ -2045,14 +2138,33 @@ elif menu == "🛠️ Defect Tracker":
                         submitted_admin_def = st.form_submit_button(f"💾 Save All Defect Changes to Database ({tc_id})", use_container_width=True)
 
                         if submitted_admin_def:
-                            admin_update_full_defect_details(
-                                tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
-                                fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
-                                assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
-                                defect_desc=adm_def_desc
-                            )
-                            st.success(f"Defect report updated successfully for {tc_id}!")
-                            st.rerun()
+                            if is_manual_defect:
+                                conn_upd = get_db_connection()
+                                if conn_upd:
+                                    try:
+                                        cur_upd = conn_upd.cursor()
+                                        cur_upd.execute("""
+                                            UPDATE manual_defects 
+                                            SET severity = %s, priority = %s, defect_status = %s, assigned_to = %s, 
+                                                defect_desc = %s, steps_to_reproduce = %s, expected_result = %s, utano = %s
+                                            WHERE tc_id = %s AND module_name = %s
+                                        """, (adm_severity, adm_priority, adm_status, adm_assigned, adm_def_desc, adm_steps, adm_expected, adm_utano, tc_id, mod_name))
+                                        conn_upd.commit()
+                                        cur_upd.close()
+                                        conn_upd.close()
+                                        st.success(f"Manual defect updated successfully for {tc_id}!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error updating manual defect: {e}")
+                            else:
+                                admin_update_full_defect_details(
+                                    tc_id, mod_name, adm_steps, actual_result=adm_def_desc, executed_by=adm_exec_by, utano=adm_utano, 
+                                    fe=adm_fe, sibs=adm_sibs, severity=adm_severity, priority=adm_priority, defect_status=adm_status, 
+                                    assigned_to=adm_assigned, target_date=adm_target_date, root_cause=adm_root_cause,
+                                    defect_desc=adm_def_desc
+                                )
+                                st.success(f"Defect report updated successfully for {tc_id}!")
+                                st.rerun()
                 else:
                     c_inf1, c_inf2 = st.columns(2)
                     with c_inf1:
