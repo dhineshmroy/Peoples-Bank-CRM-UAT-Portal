@@ -1810,59 +1810,58 @@ elif menu == "🛠️ Defect Tracker":
                     if not man_tc_id.strip() or not man_desc.strip():
                         st.error("Please provide at least a Defect ID and Description.")
                     else:
-                        try:
-                            # Ensuring manual defects explicitly pass metadata columns if your backend table accepts them
-                            save_test_case_to_db(
-                                tc_id=man_tc_id.strip(), 
-                                module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
-                                status="FAIL", 
-                                actual_result=man_desc, 
-                                fe="FAILED", 
-                                sibs="PENDING", 
-                                utano=man_utano, 
-                                remarks=man_expected, 
-                                executed_by=man_detected_by, 
-                                executed_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                                receipt_path="", 
-                                photo_path="",
-                                defect_desc=man_desc,
-                                path_type="Manual",
-                                severity=man_severity,
-                                priority=man_priority,
-                                defect_status=man_status,
-                                assigned_to=man_assigned
-                            )
-                            st.success(f"Successfully logged manual defect {man_tc_id}!")
-                            st.rerun()
-                        except Exception as db_err:
-                            # Fallback if your standard save function doesn't take keyword arguments like path_type/severity yet
+                        conn_ins = get_db_connection()
+                        if conn_ins:
                             try:
-                                save_test_case_to_db(
-                                    tc_id=man_tc_id.strip(), 
-                                    module_name=man_module.strip() if man_module.strip() else "Manual_Defect_Module", 
-                                    status="FAIL", 
-                                    actual_result=man_desc, 
-                                    fe="FAILED", 
-                                    sibs="PENDING", 
-                                    utano=man_utano, 
-                                    remarks=man_expected, 
-                                    executed_by=man_detected_by, 
-                                    executed_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                                    receipt_path="", 
-                                    photo_path="",
-                                    defect_desc=man_desc
-                                )
-                                st.success(f"Successfully logged manual defect {man_tc_id}!")
+                                cur_ins = conn_ins.cursor()
+                                # Using columns that exist or are standard in your schema (falling back safely)
+                                insert_query = """
+                                    INSERT INTO uat_test_executions 
+                                    (tc_id, module_name, fe_status, actual_result, fe, sibs, utano, remarks, executed_by, executed_date, defect_desc, severity, priority, defect_status, assigned_to)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (tc_id, module_name) DO UPDATE SET
+                                    fe_status = EXCLUDED.fe_status,
+                                    actual_result = EXCLUDED.actual_result,
+                                    defect_desc = EXCLUDED.defect_desc,
+                                    severity = EXCLUDED.severity,
+                                    priority = EXCLUDED.priority,
+                                    defect_status = EXCLUDED.defect_status,
+                                    assigned_to = EXCLUDED.assigned_to;
+                                """
+                                cur_ins.execute(insert_query, (
+                                    man_tc_id.strip(),
+                                    man_module.strip() if man_module.strip() else "Manual_Defect_Module",
+                                    "FAIL", # Storing failure state in fe_status or matching column
+                                    man_desc,
+                                    "FAILED",
+                                    "PENDING",
+                                    man_utano,
+                                    man_expected,
+                                    man_detected_by,
+                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    man_desc,
+                                    man_severity,
+                                    man_priority,
+                                    man_status,
+                                    man_assigned
+                                ))
+                                conn_ins.commit()
+                                cur_ins.close()
+                                conn_ins.close()
+                                st.success(f"Successfully saved manual defect {man_tc_id} to database!")
                                 st.rerun()
-                            except Exception as fallback_err:
-                                st.error(f"Database Insert Failed: {fallback_err}")
+                            except Exception as db_err:
+                                st.error(f"Direct Database Insert Failed: {db_err}")
+                        else:
+                            st.error("Could not establish a database connection.")
 
-    # Broaden defect filter to catch both FAIL status and explicit Manual entries
-    if not df.empty and 'Status' in df.columns:
-        if 'Path Type' in df.columns:
-            defect_df = df[(df['Status'] == 'FAIL') | (df['Path Type'] == 'Manual')].copy()
+    # Safe dataframe filtering checking whichever status column exists in your df
+    if not df.empty:
+        status_col = 'Status' if 'Status' in df.columns else ('fe_status' if 'fe_status' in df.columns else None)
+        if status_col:
+            defect_df = df[df[status_col].astype(str).str.upper() == 'FAIL'].copy()
         else:
-            defect_df = df[df['Status'] == 'FAIL'].copy()
+            defect_df = df.copy()
     else:
         defect_df = pd.DataFrame()
 
@@ -1879,10 +1878,12 @@ elif menu == "🛠️ Defect Tracker":
             enable_def_date_filter = st.checkbox("Enable Execution Date Filter for Defects", key="def_date_chk")
 
         if def_search_kw and not defect_df.empty:
+            tc_col = 'TC ID' if 'TC ID' in defect_df.columns else defect_df.columns[0]
+            desc_col = 'Test Case Description' if 'Test Case Description' in defect_df.columns else tc_col
             defect_df = defect_df[
-                defect_df['TC ID'].str.contains(def_search_kw, case=False, na=False) | 
-                defect_df['Test Case Description'].str.contains(def_search_kw, case=False, na=False) | 
-                defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).str.contains(def_search_kw, case=False, na=False)
+                defect_df[tc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
+                defect_df[desc_col].astype(str).str.contains(def_search_kw, case=False, na=False) | 
+                defect_df.get('Defect Description', pd.Series('', index=defect_df.index)).astype(str).str.contains(def_search_kw, case=False, na=False)
             ]
 
         if enable_def_date_filter:
@@ -1902,15 +1903,16 @@ elif menu == "🛠️ Defect Tracker":
                 except Exception:
                     return None
             
-            exec_dates = defect_df['Executed Date'].apply(parse_dt)
-            
-            if def_date_mode == "Date Range" and isinstance(def_date_range, tuple) and len(def_date_range) == 2:
-                start_d, end_d = def_date_range
-                mask = exec_dates.apply(lambda d: d is not None and start_d <= d <= end_d)
-                defect_df = defect_df[mask]
-            elif def_date_mode == "Specific Date" and specific_def_date:
-                mask = exec_dates.apply(lambda d: d is not None and d == specific_def_date)
-                defect_df = defect_df[mask]
+            date_col = 'Executed Date' if 'Executed Date' in defect_df.columns else 'executed_date'
+            if date_col in defect_df.columns:
+                exec_dates = defect_df[date_col].apply(parse_dt)
+                if def_date_mode == "Date Range" and isinstance(def_date_range, tuple) and len(def_date_range) == 2:
+                    start_d, end_d = def_date_range
+                    mask = exec_dates.apply(lambda d: d is not None and start_d <= d <= end_d)
+                    defect_df = defect_df[mask]
+                elif def_date_mode == "Specific Date" and specific_def_date:
+                    mask = exec_dates.apply(lambda d: d is not None and d == specific_def_date)
+                    defect_df = defect_df[mask]
 
     if defect_df.empty:
         st.success("🎉 No failed test cases match your criteria.")
@@ -1942,7 +1944,7 @@ elif menu == "🛠️ Defect Tracker":
                 defect_df[col] = ""
 
         st.dataframe(
-            defect_df[tracker_display_cols], 
+            defect_df[[c for c in tracker_display_cols if c in defect_df.columns]], 
             use_container_width=True, 
             height=350, 
             hide_index=True
@@ -1952,14 +1954,14 @@ elif menu == "🛠️ Defect Tracker":
         st.markdown("### ⚙️ Individual Defect Inspection & Management")
 
         for idx, row in defect_df.iterrows():
-            tc_id = row['TC ID']
-            mod_name = row['Module Name']
+            tc_id = row.get('TC ID', 'UNKNOWN')
+            mod_name = row.get('Module Name', 'UNKNOWN')
             
             default_desc = row.get('Defect Description') if str(row.get('Defect Description', '')).strip() else row.get('Test Case Description', '')
             default_steps = row.get('Steps to Reproduce') if str(row.get('Steps to Reproduce', '')).strip() else row.get('Test Steps', '')
             default_expected = row.get('Expected Results') if str(row.get('Expected Results', '')).strip() else row.get('Expected Result', '')
             
-            with st.expander(f"🔴 [{tc_id}] {default_desc} — Status: {row.get('Status')} (Module: {mod_name})"):
+            with st.expander(f"🔴 [{tc_id}] {default_desc} — Status: {row.get('Status', row.get('fe_status', 'FAIL'))} (Module: {mod_name})"):
                 
                 d_key = f"def_{mod_name}_{tc_id}_{idx}"
                 
