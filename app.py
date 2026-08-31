@@ -1814,13 +1814,13 @@ elif menu == "🛠️ Defect Tracker":
                         if conn_ins:
                             try:
                                 cur_ins = conn_ins.cursor()
+                                # Using only core columns confirmed to exist in your table schema
                                 insert_query = """
                                     INSERT INTO uat_test_executions 
-                                    (tc_id, module_name, fe_status, remarks, executed_by, executed_date)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    (tc_id, module_name, fe_status, executed_by, executed_date)
+                                    VALUES (%s, %s, %s, %s, %s)
                                     ON CONFLICT (tc_id, module_name) DO UPDATE SET
                                     fe_status = EXCLUDED.fe_status,
-                                    remarks = EXCLUDED.remarks,
                                     executed_by = EXCLUDED.executed_by,
                                     executed_date = EXCLUDED.executed_date;
                                 """
@@ -1828,7 +1828,6 @@ elif menu == "🛠️ Defect Tracker":
                                     man_tc_id.strip(),
                                     man_module.strip() if man_module.strip() else "Manual_Defect_Module",
                                     "FAIL",
-                                    man_desc,
                                     man_detected_by,
                                     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 ))
@@ -1951,7 +1950,7 @@ elif menu == "🛠️ Defect Tracker":
                 
                 d_key = f"def_{mod_name}_{tc_id}_{idx}"
                 
-                # --- MARK DEFECT AS PASS (RESOLVE) INSTEAD OF DELETING ---
+                # --- MARK DEFECT AS PASS (RESOLVE) ---
                 if can_execute:
                     if st.button("✅ Mark Defect as PASS (Resolve)", key=f"pass_btn_{d_key}", use_container_width=True):
                         conn_pass = get_db_connection()
