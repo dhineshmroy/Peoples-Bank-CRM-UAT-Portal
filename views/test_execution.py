@@ -288,10 +288,12 @@ def render_test_execution_page():
 
         form_data = {}
 
-        if selected_module == "GRG_CRM_Cardless_Bill_Payment":
+        elif selected_module == "GRG_CRM_Cardless_Bill_Payment":
             with col2:
                 form_data["biller_name"] = st.text_input("Biller Name / Category", value=saved_extra.get("biller_name", pre_biller))
-                form_data["consumer_acc"] = st.text_input("Consumer / Acc / Ref No", value=saved_extra.get("consumer_acc", ""))
+                # Support both consumer_acc and consumer_acc_ref for backward compatibility
+                default_acc = saved_extra.get("consumer_acc_ref", saved_extra.get("consumer_acc", ""))
+                form_data["consumer_acc_ref"] = st.text_input("Consumer / Acc / Ref No", value=default_acc)
             c3, c4 = st.columns(2)
             with c3:
                 bill_amount = st.number_input("Bill Txn Amount (LKR)", value=float(saved_extra.get("bill_amount", 0.00)), format="%.2f", key="cardless_bill_amt")
@@ -308,6 +310,31 @@ def render_test_execution_page():
                 b_idx = biller_sv_options.index(default_b_status) if default_b_status in biller_sv_options else 0
                 biller_sv_status = st.selectbox("Biller & SV Status", biller_sv_options, index=b_idx)
                 form_data["biller_sv_status"] = biller_sv_status
+
+        elif selected_module == "GRG_CRM_Cardbased_Bill_Payment":
+            with col2:
+                form_data["bill_number"] = st.text_input("Bill Number", value=saved_extra.get("bill_number", ""))
+                form_data["card_number"] = st.text_input("Card Number", value=saved_extra.get("card_number", ""))
+            c3, c4 = st.columns(2)
+            with c3:
+                default_acc = saved_extra.get("consumer_acc_ref", saved_extra.get("account_number", ""))
+                form_data["consumer_acc_ref"] = st.text_input("Account Number / Ref No", value=default_acc)
+                
+                card_types = ["VISA", "MASTER", "AMEX", "RUPAY"]
+                def_ct = saved_extra.get("card_type", "VISA")
+                ct_idx = card_types.index(def_ct) if def_ct in card_types else 0
+                form_data["card_type"] = st.selectbox("Card Type", card_types, index=ct_idx)
+                
+                form_data["before_balance"] = st.number_input("Before Txn Balance (LKR)", value=float(saved_extra.get("before_balance", 0.00)), format="%.2f")
+                txn_amt = st.number_input("Txn Amount (LKR)", value=float(saved_extra.get("txn_amount", 0.00)), format="%.2f", key="cb_bill_amt")
+            with c4:
+                serv_chg = st.number_input("Service Charge (LKR)", value=float(saved_extra.get("service_charge", 0.00)), format="%.2f", key="cb_bill_serv")
+                actual_paid = txn_amt + serv_chg
+                form_data["txn_amount"] = txn_amt
+                form_data["service_charge"] = serv_chg
+                form_data["actual_paid"] = actual_paid
+                st.markdown(f"### **Actual Paid Amount (LKR) [Auto]:** `LKR {actual_paid:,.2f}`")
+                form_data["after_balance"] = st.number_input("After Txn Balance (LKR)", value=float(saved_extra.get("after_balance", 0.00)), format="%.2f")
 
         elif selected_module == "GRG_CRM_Cardless_Cash_Deposit":
             with col2:
