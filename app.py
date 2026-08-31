@@ -2366,7 +2366,8 @@ elif menu == "🛠️ Defect Tracker":
 
                     st.markdown("---")
                     if can_execute:
-                        if st.button(f"🗑️ Delete Screen Issue ({s_id})", key=f"del_screen_{s_id}_{idx}", type="secondary"):
+                        # Dedicated button to delete the screen issue once resolved/fixed
+                        if st.button(f"🗑️ Delete Resolved Screen Issue ({s_id})", key=f"del_screen_{s_id}_{idx}", type="secondary", use_container_width=True):
                             conn_del_s = get_db_connection()
                             if conn_del_s:
                                 try:
@@ -2375,7 +2376,7 @@ elif menu == "🛠️ Defect Tracker":
                                     conn_del_s.commit()
                                     cur_ds.close()
                                     conn_del_s.close()
-                                    st.success(f"Successfully deleted screen issue {s_id}!")
+                                    st.success(f"Successfully deleted resolved screen issue {s_id}!")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error deleting screen issue: {e}")
