@@ -2201,14 +2201,28 @@ elif menu == "🛠️ Defect Tracker":
     # ==========================================
     with tracker_tab2:
         st.markdown("### 🎨 UI, Layout & Multi-Language Screen Issues Tracker")
-        st.markdown("Log visual UI defects, alignment issues, text typos, and translation errors across **English, Sinhala, and Tamil** interfaces with up to 3 screenshot proofs.")
+        st.markdown("Log visual UI defects, alignment issues, text typos, and translation errors across **English, Sinhala, and Tamil** interfaces with icon references and up to 3 screenshot proofs.")
+
+        # Load existing screen issues first to determine next sequential ID
+        conn_load_init = get_db_connection()
+        screen_df_init = pd.DataFrame()
+        if conn_load_init:
+            try:
+                screen_df_init = pd.read_sql("SELECT * FROM screen_issues", conn_load_init)
+                conn_load_init.close()
+            except Exception:
+                pass
+
+        next_issue_num = len(screen_df_init) + 1
+        default_next_id = f"UI_DEF_{next_issue_num:02d}"
 
         if can_execute:
             with st.expander("➕ Log New Screen / UI Issue", expanded=False):
                 with st.form("screen_issue_form"):
                     sc_col1, sc_col2 = st.columns(2)
                     with sc_col1:
-                        scr_id = st.text_input("Screen Issue ID", value="UI_DEF_01", placeholder="e.g. UI_BILL_01")
+                        scr_id = st.text_input("Screen Issue ID (Auto-Sequential)", value=default_next_id, disabled=True)
+                        scr_icon = st.text_input("Screen Icon Number", value=f"ICON_{next_issue_num:02d}", placeholder="e.g. ICON_01, ICON_02")
                         scr_module = st.text_input("Module / Feature Name", placeholder="e.g. Cardless Bill Payment")
                         scr_name = st.text_input("Screen Name / Component", placeholder="e.g. Bill Summary Modal")
                     with sc_col2:
@@ -2220,14 +2234,17 @@ elif menu == "🛠️ Defect Tracker":
                     scr_dev_notes = st.text_area("Developer Explanation / Fix Instructions", placeholder="Explain clearly to the developer how to fix this (e.g., 'In Sinhala translation label, adjust CSS flexbox margin or wrap text to avoid truncation...')")
                     
                     st.markdown("---")
-                    st.markdown("### 📸 Upload Screenshots (Maximum 3 Photos)")
+                    st.markdown("### 📸 Upload Screenshots & Icon Reference (Maximum 3 Photos)")
                     uploaded_photos = st.file_uploader("Upload up to 3 screenshots showing the UI/Screen issue", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="scr_photos")
 
                     submitted_scr = st.form_submit_button("🚨 Save Screen Issue to Database", use_container_width=True)
 
                     if submitted_scr:
-                        if not scr_id.strip() or not scr_desc.strip():
-                            st.error("Please provide at least a Screen Issue ID and Description.")
+                        icon_val = scr_icon.strip()
+                        if not icon_val.upper().startswith("ICON"):
+                            st.error("Screen Icon Number must start with 'ICON' followed by numeric value (e.g., ICON_01).")
+                        elif not scr_desc.strip():
+                            st.error("Please provide at least an Issue Description.")
                         else:
                             # Process up to 3 uploaded images into base64 text strings
                             img1_b64, img2_b64, img3_b64 = "", "", ""
@@ -2248,6 +2265,7 @@ elif menu == "🛠️ Defect Tracker":
                                         CREATE TABLE IF NOT EXISTS screen_issues (
                                             issue_id VARCHAR(100),
                                             module_name VARCHAR(255),
+                                            icon_number VARCHAR(50),
                                             screen_name VARCHAR(255),
                                             language VARCHAR(50),
                                             issue_type VARCHAR(100),
@@ -2265,9 +2283,10 @@ elif menu == "🛠️ Defect Tracker":
 
                                     insert_scr_query = """
                                         INSERT INTO screen_issues 
-                                        (issue_id, module_name, screen_name, language, issue_type, severity, description, developer_notes, detected_by, created_at, image1, image2, image3)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        (issue_id, module_name, icon_number, screen_name, language, issue_type, severity, description, developer_notes, detected_by, created_at, image1, image2, image3)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                         ON CONFLICT (issue_id, module_name) DO UPDATE SET
+                                        icon_number = EXCLUDED.icon_number,
                                         screen_name = EXCLUDED.screen_name,
                                         language = EXCLUDED.language,
                                         issue_type = EXCLUDED.issue_type,
@@ -2281,8 +2300,9 @@ elif menu == "🛠️ Defect Tracker":
                                         image3 = CASE WHEN EXCLUDED.image3 <> '' THEN EXCLUDED.image3 ELSE screen_issues.image3 END;
                                     """
                                     cur_s.execute(insert_scr_query, (
-                                        scr_id.strip(),
+                                        default_next_id,
                                         scr_module.strip() if scr_module.strip() else "General_UI",
+                                        icon_val,
                                         scr_name.strip() if scr_name.strip() else "Main Screen",
                                         scr_lang,
                                         scr_type,
@@ -2298,7 +2318,7 @@ elif menu == "🛠️ Defect Tracker":
                                     conn_s.commit()
                                     cur_s.close()
                                     conn_s.close()
-                                    st.success(f"Successfully saved screen issue {scr_id}!")
+                                    st.success(f"Successfully saved screen issue {default_next_id} with Icon {icon_val}!")
                                     st.rerun()
                                 except Exception as db_err:
                                     st.error(f"Screen Issue Insert Failed: {db_err}")
@@ -2323,6 +2343,7 @@ elif menu == "🛠️ Defect Tracker":
             for idx, row in screen_df.iterrows():
                 s_id = row.get('issue_id', 'UI_DEF')
                 s_mod = row.get('module_name', '')
+                s_icon = row.get('icon_number', 'ICON_01')
                 s_screen = row.get('screen_name', '')
                 s_lang = row.get('language', '')
                 s_type = row.get('issue_type', '')
@@ -2332,14 +2353,15 @@ elif menu == "🛠️ Defect Tracker":
                 s_by = row.get('detected_by', '')
                 s_date = row.get('created_at', '')
 
-                with st.expander(f"🎨 [{s_id}] {s_type} — Screen: {s_screen} ({s_lang}) | Severity: {s_sev}"):
+                with st.expander(f"🎨 [{s_id}] Icon: {s_icon} | {s_type} — Screen: {s_screen} ({s_lang}) | Severity: {s_sev}"):
                     col_info1, col_info2 = st.columns(2)
                     with col_info1:
                         st.markdown(f"**Module:** `{s_mod}`")
+                        st.markdown(f"**Screen Icon Number:** `{s_icon}`")
                         st.markdown(f"**Screen / Component:** `{s_screen}`")
                         st.markdown(f"**Language:** `{s_lang}`")
-                        st.markdown(f"**Issue Type:** `{s_type}`")
                     with col_info2:
+                        st.markdown(f"**Issue Type:** `{s_type}`")
                         st.markdown(f"**Severity:** `{s_sev}`")
                         st.markdown(f"**Detected By:** `{s_by}`")
                         st.markdown(f"**Logged At:** `{s_date}`")
@@ -2361,23 +2383,74 @@ elif menu == "🛠️ Defect Tracker":
                             with img_cols[i]:
                                 try:
                                     decoded_bytes = base64.b64decode(img_data_str)
-                                    st.image(decoded_bytes, caption=f"Proof {i+1} ({s_id})", use_container_width=True)
+                                    st.image(decoded_bytes, caption=f"Proof {i+1} ({s_icon})", use_container_width=True)
                                 except Exception:
                                     pass
 
                     st.markdown("---")
+
+                    # --- UPDATE & DELETE CONTROLS ---
                     if can_execute:
-                        # Dedicated button to delete the screen issue once resolved/fixed
+                        upd_key = f"update_screen_{s_id}_{idx}"
+                        with st.form(key=f"form_update_screen_{upd_key}"):
+                            st.markdown(f"### ✏️ Update Screen Issue ({s_id})")
+                            
+                            u_col1, u_col2 = st.columns(2)
+                            with u_col1:
+                                upd_icon = st.text_input("Screen Icon Number", value=s_icon)
+                                upd_mod = st.text_input("Module / Feature Name", value=s_mod)
+                                upd_screen = st.text_input("Screen Name / Component", value=s_screen)
+                            with u_col2:
+                                lang_list = ["English", "Sinhala", "Tamil", "All Languages (Multilingual)"]
+                                curr_lang_idx = lang_list.index(s_lang) if s_lang in lang_list else 0
+                                upd_lang = st.selectbox("Language Affected", lang_list, index=curr_lang_idx)
+                                
+                                type_list = ["UI Layout / Overflow", "Alignment Issue", "Translation / Typo Error", "Font / Styling Issue", "Missing UI Element", "Other"]
+                                curr_type_idx = type_list.index(s_type) if s_type in type_list else 0
+                                upd_type = st.selectbox("Issue Type", type_list, index=curr_type_idx)
+                                
+                                sev_list = ["Low", "Medium", "High", "Critical"]
+                                curr_sev_idx = sev_list.index(s_sev) if s_sev in sev_list else 1
+                                upd_sev = st.selectbox("Severity", sev_list, index=curr_sev_idx)
+
+                            upd_desc = st.text_area("Issue Description", value=s_desc)
+                            upd_notes = st.text_area("Developer Explanation / Fix Instructions", value=s_notes)
+
+                            submitted_update_scr = st.form_submit_button(f"💾 Save Changes for ({s_id})", use_container_width=True)
+
+                            if submitted_update_scr:
+                                if not upd_icon.upper().startswith("ICON"):
+                                    st.error("Icon number must start with 'ICON'.")
+                                else:
+                                    conn_upd_s = get_db_connection()
+                                    if conn_upd_s:
+                                        try:
+                                            cur_us = conn_upd_s.cursor()
+                                            cur_us.execute("""
+                                                UPDATE screen_issues 
+                                                SET icon_number = %s, module_name = %s, screen_name = %s, language = %s, 
+                                                    issue_type = %s, severity = %s, description = %s, developer_notes = %s
+                                                WHERE issue_id = %s
+                                            """, (upd_icon.strip(), upd_mod.strip(), upd_screen.strip(), upd_lang, upd_type, upd_sev, upd_desc, upd_notes, s_id))
+                                            conn_upd_s.commit()
+                                            cur_us.close()
+                                            conn_upd_s.close()
+                                            st.success(f"Successfully updated screen issue {s_id}!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error updating screen issue: {e}")
+
+                        st.markdown("")
                         if st.button(f"🗑️ Delete Resolved Screen Issue ({s_id})", key=f"del_screen_{s_id}_{idx}", type="secondary", use_container_width=True):
                             conn_del_s = get_db_connection()
                             if conn_del_s:
                                 try:
                                     cur_ds = conn_del_s.cursor()
-                                    cur_ds.execute("DELETE FROM screen_issues WHERE issue_id = %s AND module_name = %s", (s_id, s_mod))
+                                    cur_ds.execute("DELETE FROM screen_issues WHERE issue_id = %s", (s_id,))
                                     conn_del_s.commit()
                                     cur_ds.close()
                                     conn_del_s.close()
-                                    st.success(f"Successfully deleted resolved screen issue {s_id}!")
+                                    st.success(f"Successfully deleted screen issue {s_id}! IDs will re-index sequentially.")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error deleting screen issue: {e}")
