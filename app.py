@@ -28,6 +28,9 @@ def get_db_connection():
 
 
 
+
+
+
 # Page Configuration
 st.set_page_config(
     page_title="People's Bank | GRG CRM UAT Portal",
@@ -39,6 +42,225 @@ st.set_page_config(
 UPLOAD_DIR = "uploads"
 os.makedirs(os.path.join(UPLOAD_DIR, "receipts"), exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "photos"), exist_ok=True)
+
+
+
+# ==========================================
+# HELPER FUNCTIONS FOR SCREEN ISSUES EXPORT (EXCEL & PDF)
+# ==========================================
+import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.drawing.image import Image as OpenpyxlImage
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+def generate_screen_issues_excel(df):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "UI Screen Issues Tracker"
+    
+    # Ensure grid lines are visible
+    ws.views.sheetView[0].showGridLines = True
+    
+    # Define styles
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    data_font = Font(name="Calibri", size=10)
+    title_font = Font(name="Calibri", size=16, bold=True, color="1F4E78")
+    
+    border_thin = Border(
+        left=Side(style='thin', color='D3D3D3'),
+        right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'),
+        bottom=Side(style='thin', color='D3D3D3')
+    )
+    
+    # Title Block
+    ws.merge_cells("A1:M1")
+    ws["A1"] = "Peoples Bank CRM UAT - UI & Screen Issues Tracking Register"
+    ws["A1"].font = title_font
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 35
+    
+    headers = [
+        "Issue ID", "Icon Number", "Module Name", "Screen / Component", 
+        "Language", "Issue Type", "Severity", "Description", 
+        "Developer Notes", "Detected By", "Created At", "Image 1", "Image 2", "Image 3"
+    ]
+    
+    ws.row_dimensions[3].height = 25
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border_thin
+        
+    current_row = 4
+    for idx, row in df.iterrows():
+        ws.row_dimensions[current_row].height = 90  # Room for text and thumbnail preview
+        
+        row_data = [
+            str(row.get('issue_id', '')),
+            str(row.get('icon_number', '')),
+            str(row.get('module_name', '')),
+            str(row.get('screen_name', '')),
+            str(row.get('language', '')),
+            str(row.get('issue_type', '')),
+            str(row.get('severity', '')),
+            str(row.get('description', '')),
+            str(row.get('developer_notes', '')),
+            str(row.get('detected_by', '')),
+            str(row.get('created_at', ''))
+        ]
+        
+        for c_idx, val in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=c_idx, value=val)
+            cell.font = data_font
+            cell.border = border_thin
+            cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            
+        # Handle Base64 Images embedding into Excel
+        img_fields = ['image1', 'image2', 'image3']
+        for i, img_f in enumerate(img_fields, start=12):
+            img_b64 = row.get(img_f, '')
+            if img_b64 and str(img_b64).strip() != "":
+                try:
+                    img_bytes = base64.b64decode(img_b64)
+                    img_io = io.BytesIO(img_bytes)
+                    
+                    xl_img = OpenpyxlImage(img_io)
+                    xl_img.width = 100
+                    xl_img.height = 75
+                    
+                    col_letter = openpyxl.utils.get_column_letter(i)
+                    cell_ref = f"{col_letter}{current_row}"
+                    ws.add_image(xl_img, cell_ref)
+                except Exception:
+                    pass
+            
+            # Empty cell border for image columns
+            cell_img = ws.cell(row=current_row, column=i, value="")
+            cell_img.border = border_thin
+            
+        current_row += 1
+
+    # Auto-adjust column widths
+    col_widths = {'A': 14, 'B': 14, 'C': 22, 'D': 22, 'E': 15, 'F': 22, 'G': 12, 'H': 35, 'I': 35, 'J': 18, 'K': 18, 'L': 16, 'M': 16, 'N': 16}
+    for col_let, width in col_widths.items():
+        ws.column_dimensions[col_let].width = width
+
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    return excel_buffer
+
+def generate_screen_issues_pdf(df):
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer, 
+        pagesize=letter,
+        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
+    )
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=14,
+        textColor=colors.HexColor('#1F4E78'),
+        spaceAfter=15,
+        alignment=1 # Center
+    )
+    
+    h2_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        textColor=colors.HexColor('#1F4E78'),
+        spaceBefore=8,
+        spaceAfter=4
+    )
+    
+    normal_style = ParagraphStyle(
+        'NormalText',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        textColor=colors.HexColor('#333333'),
+        leading=12
+    )
+
+    story = [Paragraph("Peoples Bank CRM UAT — UI & Screen Issues Report", title_style), Spacer(1, 10)]
+
+    for idx, row in df.iterrows():
+        s_id = row.get('issue_id', 'UI_DEF')
+        s_icon = row.get('icon_number', 'ICON_01')
+        s_mod = row.get('module_name', '')
+        s_screen = row.get('screen_name', '')
+        s_lang = row.get('language', '')
+        s_type = row.get('issue_type', '')
+        s_sev = row.get('severity', 'Medium')
+        s_desc = row.get('description', '')
+        s_notes = row.get('developer_notes', '')
+        s_by = row.get('detected_by', '')
+        s_date = row.get('created_at', '')
+
+        card_data = [
+            [Paragraph(f"<b>Issue ID:</b> {s_id} | <b>Icon:</b> {s_icon}", normal_style), Paragraph(f"<b>Severity:</b> {s_sev}", normal_style)],
+            [Paragraph(f"<b>Module:</b> {s_mod}", normal_style), Paragraph(f"<b>Screen:</b> {s_screen}", normal_style)],
+            [Paragraph(f"<b>Language:</b> {s_lang}", normal_style), Paragraph(f"<b>Type:</b> {s_type}", normal_style)],
+            [Paragraph(f"<b>Description:</b> {s_desc}", normal_style), Paragraph(f"<b>Developer Notes:</b> {s_notes}", normal_style)],
+            [Paragraph(f"<b>Detected By:</b> {s_by} | <b>Date:</b> {s_date}", normal_style), Paragraph("", normal_style)]
+        ]
+
+        # Process images for PDF embedding
+        img_elements = []
+        img_fields = ['image1', 'image2', 'image3']
+        for img_f in img_fields:
+            img_b64 = row.get(img_f, '')
+            if img_b64 and str(img_b64).strip() != "":
+                try:
+                    img_bytes = base64.b64decode(img_b64)
+                    img_io = io.BytesIO(img_bytes)
+                    rl_img = RLImage(img_io, width=120, height=90)
+                    img_elements.append(rl_img)
+                except Exception:
+                    pass
+
+        table_structure = Table(card_data, colWidths=[260, 260])
+        table_structure.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#D3D3D3')),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E5E5')),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+        ]))
+
+        issue_block = [table_structure]
+        if img_elements:
+            img_table_data = [img_elements]
+            img_table = Table(img_table_data, colWidths=[135]*len(img_elements))
+            img_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ]))
+            issue_block.append(Spacer(1, 4))
+            issue_block.append(img_table)
+
+        issue_block.append(Spacer(1, 15))
+        story.append(KeepTogether(issue_block))
+
+    doc.build(story)
+    pdf_buffer.seek(0)
+    return pdf_buffer
 
 
 
@@ -1770,6 +1992,10 @@ elif menu == "🧪 Test Execution & Scenarios":
                         
                 st.markdown('</div>', unsafe_allow_html=True)
 
+
+
+
+
 # ---------------------------------------------------------
 # 3. DEFECT TRACKER & SCREEN ISSUES
 # ---------------------------------------------------------
@@ -2196,6 +2422,9 @@ elif menu == "🛠️ Defect Tracker":
                         if row.get('Root Cause'):
                             st.info(f"**Root Cause / Resolution Notes:** {row['Root Cause']}")
 
+
+    
+
     # ==========================================
     # TAB 2: UI / SCREEN ISSUES (MULTI-LANGUAGE)
     # ==========================================
@@ -2208,6 +2437,29 @@ elif menu == "🛠️ Defect Tracker":
         screen_df_init = pd.DataFrame()
         if conn_load_init:
             try:
+                cur_init = conn_load_init.cursor()
+                cur_init.execute("""
+                    CREATE TABLE IF NOT EXISTS screen_issues (
+                        issue_id VARCHAR(100),
+                        module_name VARCHAR(255),
+                        screen_name VARCHAR(255),
+                        language VARCHAR(50),
+                        issue_type VARCHAR(100),
+                        severity VARCHAR(50),
+                        description TEXT,
+                        developer_notes TEXT,
+                        detected_by VARCHAR(100),
+                        created_at VARCHAR(50),
+                        image1 TEXT,
+                        image2 TEXT,
+                        image3 TEXT,
+                        PRIMARY KEY (issue_id, module_name)
+                    );
+                    ALTER TABLE screen_issues ADD COLUMN IF NOT EXISTS icon_number VARCHAR(50);
+                """)
+                conn_load_init.commit()
+                cur_init.close()
+                
                 screen_df_init = pd.read_sql("SELECT * FROM screen_issues", conn_load_init)
                 conn_load_init.close()
             except Exception:
@@ -2265,7 +2517,6 @@ elif menu == "🛠️ Defect Tracker":
                                         CREATE TABLE IF NOT EXISTS screen_issues (
                                             issue_id VARCHAR(100),
                                             module_name VARCHAR(255),
-                                            icon_number VARCHAR(50),
                                             screen_name VARCHAR(255),
                                             language VARCHAR(50),
                                             issue_type VARCHAR(100),
@@ -2279,6 +2530,7 @@ elif menu == "🛠️ Defect Tracker":
                                             image3 TEXT,
                                             PRIMARY KEY (issue_id, module_name)
                                         );
+                                        ALTER TABLE screen_issues ADD COLUMN IF NOT EXISTS icon_number VARCHAR(50);
                                     """)
 
                                     insert_scr_query = """
@@ -2340,10 +2592,34 @@ elif menu == "🛠️ Defect Tracker":
         else:
             st.warning(f"⚠️ Total Logged Screen / UI Issues: {len(screen_df)}")
             
+            # --- DOWNLOAD BUTTONS FOR EXCEL AND PDF ---
+            st.markdown("### 📥 Download Official Screen Issues Reports")
+            dl_col1, dl_col2 = st.columns(2)
+            
+            with dl_col1:
+                excel_buf = generate_screen_issues_excel(screen_df)
+                st.download_button(
+                    label="📥 Download Screen Issues (.xlsx)",
+                    data=excel_buf.getvalue(),
+                    file_name=f"PeoplesBank_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with dl_col2:
+                pdf_buf = generate_screen_issues_pdf(screen_df)
+                st.download_button(
+                    label="📥 Download Screen Issues (.pdf)",
+                    data=pdf_buf.getvalue(),
+                    file_name=f"PeoplesBank_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            st.divider()
+
             for idx, row in screen_df.iterrows():
                 s_id = row.get('issue_id', 'UI_DEF')
                 s_mod = row.get('module_name', '')
-                s_icon = row.get('icon_number', 'ICON_01')
+                s_icon = row.get('icon_number', 'ICON_01') if pd.notna(row.get('icon_number')) else 'ICON_01'
                 s_screen = row.get('screen_name', '')
                 s_lang = row.get('language', '')
                 s_type = row.get('issue_type', '')
