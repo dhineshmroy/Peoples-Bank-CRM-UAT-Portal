@@ -172,6 +172,10 @@ def generate_screen_issues_excel(df):
     excel_buffer.seek(0)
     return excel_buffer
 
+import os
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 def generate_screen_issues_pdf(df):
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -182,11 +186,33 @@ def generate_screen_issues_pdf(df):
     
     styles = getSampleStyleSheet()
     
-    # Custom Professional Typography Styles
+    # Register a Unicode-compatible font for Sinhala, Tamil, and English rendering
+    font_name = "Helvetica"  # Default fallback
+    font_bold_name = "Helvetica-Bold"
+    
+    unicode_font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",           # Linux / Streamlit Cloud
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",      # Linux Noto
+        "/Library/Fonts/Arial Unicode.ttf",                         # macOS
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",     # macOS
+        "/System/Library/Fonts/SFNS.ttf"                            # macOS Apple System
+    ]
+    
+    for fpath in unicode_font_paths:
+        if os.path.exists(fpath):
+            try:
+                pdfmetrics.registerFont(TTFont('UnicodeReg', fpath))
+                font_name = 'UnicodeReg'
+                font_bold_name = 'UnicodeReg'
+                break
+            except Exception:
+                pass
+
+    # Custom Professional Typography Styles using Unicode Font
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
-        fontName='Helvetica-Bold',
+        fontName=font_bold_name,
         fontSize=15,
         textColor=colors.HexColor('#1B365D'),
         spaceAfter=2,
@@ -196,7 +222,7 @@ def generate_screen_issues_pdf(df):
     subtitle_style = ParagraphStyle(
         'DocSubtitle',
         parent=styles['Normal'],
-        fontName='Helvetica-Oblique',
+        fontName=font_name,
         fontSize=8.5,
         textColor=colors.HexColor('#666666'),
         spaceAfter=12,
@@ -206,19 +232,19 @@ def generate_screen_issues_pdf(df):
     card_label_style = ParagraphStyle(
         'CardLabel',
         parent=styles['Normal'],
-        fontName='Helvetica',
+        fontName=font_name,
         fontSize=8.5,
         textColor=colors.HexColor('#333333'),
-        leading=11
+        leading=13
     )
     
     card_val_style = ParagraphStyle(
         'CardVal',
         parent=styles['Normal'],
-        fontName='Helvetica-Bold',
+        fontName=font_bold_name,
         fontSize=8.5,
         textColor=colors.HexColor('#1B365D'),
-        leading=11
+        leading=13
     )
 
     story = [
@@ -240,12 +266,11 @@ def generate_screen_issues_pdf(df):
         s_by = str(row.get('detected_by', ''))
         s_date = str(row.get('created_at', ''))
 
-        # Constructing structured detail rows inside the card container
         card_data = [
             [
                 Paragraph(f"<b>Issue ID:</b> {s_id}", card_val_style), 
-                Paragraph(f"<b>Icon Ref:</b> <font color='#D98880'><b>{s_icon}</b></font>", card_val_style),
-                Paragraph(f"<b>Severity:</b> <font color='{'#C0392B' if s_sev=='Critical' else '#D35400' if s_sev=='High' else '#27AE60'}'>{s_sev}</font>", card_val_style)
+                Paragraph(f"<b>Icon Ref:</b> {s_icon}", card_val_style),
+                Paragraph(f"<b>Severity:</b> {s_sev}", card_val_style)
             ],
             [
                 Paragraph(f"<b>Module:</b> {s_mod}", card_label_style),
@@ -258,7 +283,7 @@ def generate_screen_issues_pdf(df):
                 Paragraph(f"<b>Date:</b> {s_date}", card_label_style)
             ],
             [
-                Paragraph(f"<b>Description:</b> {s_desc}", card_label_style),
+                Paragraph(f"<b>Description / Sub-Text:</b> {s_desc}", card_label_style),
                 "", ""
             ],
             [
@@ -269,8 +294,8 @@ def generate_screen_issues_pdf(df):
 
         table_structure = Table(card_data, colWidths=[180, 180, 180])
         table_structure.setStyle(TableStyle([
-            ('SPAN', (0, 3), (2, 3)),  # Span description across columns
-            ('SPAN', (0, 4), (2, 4)),  # Span dev notes across columns
+            ('SPAN', (0, 3), (2, 3)),
+            ('SPAN', (0, 4), (2, 4)),
             ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
             ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDC3C7')),
             ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E8E8')),
@@ -283,7 +308,6 @@ def generate_screen_issues_pdf(df):
 
         issue_block = [table_structure]
         
-        # Process and align up to 3 images side-by-side with clear icon reference tags
         img_elements = []
         img_captions = []
         img_fields = ['image1', 'image2', 'image3']
@@ -296,7 +320,7 @@ def generate_screen_issues_pdf(df):
                     img_io = io.BytesIO(img_bytes)
                     rl_img = RLImage(img_io, width=150, height=110)
                     img_elements.append(rl_img)
-                    img_captions.append(Paragraph(f"<font size=8 color='#555555'><b>Proof {i} ({s_icon})</b></font>", ParagraphStyle('Cap', alignment=1)))
+                    img_captions.append(Paragraph(f"<font size=8 color='#555555'><b>Proof {i} ({s_icon})</b></font>", ParagraphStyle('Cap', fontName=font_name, alignment=1)))
                 except Exception as e:
                     print(f"PDF Image Embedding Error: {e}")
 
