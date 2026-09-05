@@ -190,50 +190,25 @@ def generate_screen_issues_pdf(df):
     font_name = "Helvetica"
     font_bold_name = "Helvetica-Bold"
     
-    # 1. Check common system paths first
-    system_font_paths = [
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
-    ]
+    local_font_dir = "fonts"
+    local_font_path = os.path.join(local_font_dir, "NotoSansSinhala-Regular.ttf")
     
-    registered_font = False
-    for fpath in system_font_paths:
-        if os.path.exists(fpath):
-            try:
-                pdfmetrics.registerFont(TTFont('UnicodeReg', fpath))
-                font_name = 'UnicodeReg'
-                font_bold_name = 'UnicodeReg'
-                registered_font = True
-                break
-            except Exception:
-                pass
-                
-    # 2. If no system font is found, download a lightweight Unicode font automatically
-    if not registered_font:
-        local_font_dir = "fonts"
-        local_font_path = os.path.join(local_font_dir, "DejaVuSans.ttf")
-        
-        if not os.path.exists(local_font_path):
-            try:
-                os.makedirs(local_font_dir, exist_ok=True)
-                # Download standard DejaVuSans TTF from a stable open-source mirror
-                font_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
-                urllib.request.urlretrieve(font_url, local_font_path)
-            except Exception as e:
-                print(f"Auto-download font error: {e}")
-                
-        if os.path.exists(local_font_path):
-            try:
-                pdfmetrics.registerFont(TTFont('UnicodeReg', local_font_path))
-                font_name = 'UnicodeReg'
-                font_bold_name = 'UnicodeReg'
-            except Exception:
-                pass
+    if not os.path.exists(local_font_path):
+        try:
+            os.makedirs(local_font_dir, exist_ok=True)
+            font_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssinhala/NotoSansSinhala%5Bwdth%2Cwght%5D.ttf"
+            urllib.request.urlretrieve(font_url, local_font_path)
+        except Exception as e:
+            print(f"Auto-download font error: {e}")
+            
+    if os.path.exists(local_font_path):
+        try:
+            pdfmetrics.registerFont(TTFont('UnicodeReg', local_font_path))
+            font_name = 'UnicodeReg'
+            font_bold_name = 'UnicodeReg'
+        except Exception as e:
+            print(f"Font registration error: {e}")
 
-    # Custom Typography Styles using the active font
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
@@ -260,7 +235,7 @@ def generate_screen_issues_pdf(df):
         fontName=font_name,
         fontSize=8.5,
         textColor=colors.HexColor('#333333'),
-        leading=13
+        leading=14
     )
     
     card_val_style = ParagraphStyle(
@@ -269,7 +244,7 @@ def generate_screen_issues_pdf(df):
         fontName=font_bold_name,
         fontSize=8.5,
         textColor=colors.HexColor('#1B365D'),
-        leading=13
+        leading=14
     )
 
     story = [
@@ -308,7 +283,7 @@ def generate_screen_issues_pdf(df):
                 Paragraph(f"<b>Date:</b> {s_date}", card_label_style)
             ],
             [
-                Paragraph(f"<b>Description / Sub-Text:</b> {s_desc}", card_label_style),
+                Paragraph(f"<b>Description / Spelling Error:</b> {s_desc}", card_label_style),
                 "", ""
             ],
             [
@@ -325,8 +300,8 @@ def generate_screen_issues_pdf(df):
             ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDC3C7')),
             ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E8E8')),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
             ('LEFTPADDING', (0,0), (-1,-1), 8),
             ('RIGHTPADDING', (0,0), (-1,-1), 8),
         ]))
