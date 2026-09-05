@@ -54,7 +54,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as OpenpyxlImage
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, KeepTogether, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 def generate_screen_issues_excel(df):
@@ -62,46 +62,52 @@ def generate_screen_issues_excel(df):
     ws = wb.active
     ws.title = "UI Screen Issues Tracker"
     
-    # Ensure grid lines are visible
     ws.views.sheetView[0].showGridLines = True
     
-    # Define styles
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    # Color Palette - Executive Navy & Slate
+    header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     data_font = Font(name="Calibri", size=10)
-    title_font = Font(name="Calibri", size=16, bold=True, color="1F4E78")
+    title_font = Font(name="Calibri", size=16, bold=True, color="1B365D")
+    subtitle_font = Font(name="Calibri", size=11, italic=True, color="595959")
     
     border_thin = Border(
-        left=Side(style='thin', color='D3D3D3'),
-        right=Side(style='thin', color='D3D3D3'),
-        top=Side(style='thin', color='D3D3D3'),
-        bottom=Side(style='thin', color='D3D3D3')
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
     )
     
-    # Title Block
-    ws.merge_cells("A1:M1")
-    ws["A1"] = "Peoples Bank CRM UAT - UI & Screen Issues Tracking Register"
+    # Title & Subtitle Block
+    ws.merge_cells("A1:N1")
+    ws["A1"] = "People's Bank CRM UAT — Official UI & Screen Issues Tracking Register"
     ws["A1"].font = title_font
-    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 35
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 25
+    
+    ws.merge_cells("A2:N2")
+    ws["A2"] = f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential — For Internal UAT Quality Assurance Only"
+    ws["A2"].font = subtitle_font
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[2].height = 18
     
     headers = [
         "Issue ID", "Icon Number", "Module Name", "Screen / Component", 
         "Language", "Issue Type", "Severity", "Description", 
-        "Developer Notes", "Detected By", "Created At", "Image 1", "Image 2", "Image 3"
+        "Developer Notes", "Detected By", "Created At", "Screenshot 1", "Screenshot 2", "Screenshot 3"
     ]
     
-    ws.row_dimensions[3].height = 25
+    ws.row_dimensions[4].height = 28
     for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=3, column=col_idx, value=header)
+        cell = ws.cell(row=4, column=col_idx, value=header)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = border_thin
         
-    current_row = 4
+    current_row = 5
     for idx, row in df.iterrows():
-        ws.row_dimensions[current_row].height = 90  # Room for text and thumbnail preview
+        ws.row_dimensions[current_row].height = 110  # Generous height for embedded thumbnails & text
         
         row_data = [
             str(row.get('issue_id', '')),
@@ -123,6 +129,16 @@ def generate_screen_issues_excel(df):
             cell.border = border_thin
             cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
             
+            # Highlight Severity Column color coding softly
+            if c_idx == 7:
+                sev_val = str(val).lower()
+                if "critical" in sev_val:
+                    cell.fill = PatternFill(start_color="FADBD8", end_color="FADBD8", fill_type="solid")
+                    cell.font = Font(name="Calibri", size=10, bold=True, color="900C3F")
+                elif "high" in sev_val:
+                    cell.fill = PatternFill(start_color="FDEBD0", end_color="FDEBD0", fill_type="solid")
+                    cell.font = Font(name="Calibri", size=10, bold=True, color="B9770E")
+            
         # Handle Base64 Images embedding into Excel
         img_fields = ['image1', 'image2', 'image3']
         for i, img_f in enumerate(img_fields, start=12):
@@ -133,23 +149,21 @@ def generate_screen_issues_excel(df):
                     img_io = io.BytesIO(img_bytes)
                     
                     xl_img = OpenpyxlImage(img_io)
-                    xl_img.width = 100
-                    xl_img.height = 75
+                    xl_img.width = 120
+                    xl_img.height = 90
                     
                     col_letter = openpyxl.utils.get_column_letter(i)
                     cell_ref = f"{col_letter}{current_row}"
                     ws.add_image(xl_img, cell_ref)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Excel Image Embedding Error: {e}")
             
-            # Empty cell border for image columns
             cell_img = ws.cell(row=current_row, column=i, value="")
             cell_img.border = border_thin
             
         current_row += 1
 
-    # Auto-adjust column widths
-    col_widths = {'A': 14, 'B': 14, 'C': 22, 'D': 22, 'E': 15, 'F': 22, 'G': 12, 'H': 35, 'I': 35, 'J': 18, 'K': 18, 'L': 16, 'M': 16, 'N': 16}
+    col_widths = {'A': 15, 'B': 15, 'C': 22, 'D': 24, 'E': 16, 'F': 24, 'G': 14, 'H': 40, 'I': 40, 'J': 18, 'K': 18, 'L': 18, 'M': 18, 'N': 18}
     for col_let, width in col_widths.items():
         ws.column_dimensions[col_let].width = width
 
@@ -163,99 +177,145 @@ def generate_screen_issues_pdf(df):
     doc = SimpleDocTemplate(
         pdf_buffer, 
         pagesize=letter,
-        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
+        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
     )
     
     styles = getSampleStyleSheet()
+    
+    # Custom Professional Typography Styles
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
         fontName='Helvetica-Bold',
-        fontSize=14,
-        textColor=colors.HexColor('#1F4E78'),
-        spaceAfter=15,
-        alignment=1 # Center
+        fontSize=15,
+        textColor=colors.HexColor('#1B365D'),
+        spaceAfter=2,
+        alignment=0
     )
     
-    h2_style = ParagraphStyle(
-        'SectionHeader',
-        parent=styles['Heading2'],
-        fontName='Helvetica-Bold',
-        fontSize=11,
-        textColor=colors.HexColor('#1F4E78'),
-        spaceBefore=8,
-        spaceAfter=4
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Oblique',
+        fontSize=8.5,
+        textColor=colors.HexColor('#666666'),
+        spaceAfter=12,
+        alignment=0
     )
     
-    normal_style = ParagraphStyle(
-        'NormalText',
+    card_label_style = ParagraphStyle(
+        'CardLabel',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
+        fontSize=8.5,
         textColor=colors.HexColor('#333333'),
-        leading=12
+        leading=11
+    )
+    
+    card_val_style = ParagraphStyle(
+        'CardVal',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8.5,
+        textColor=colors.HexColor('#1B365D'),
+        leading=11
     )
 
-    story = [Paragraph("Peoples Bank CRM UAT — UI & Screen Issues Report", title_style), Spacer(1, 10)]
+    story = [
+        Paragraph("PEOPLE'S BANK — CRM UAT UI & SCREEN ISSUES REGISTER", title_style),
+        Paragraph(f"Official Quality Assurance Report | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style),
+        HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1B365D'), spaceBefore=0, spaceAfter=10)
+    ]
 
     for idx, row in df.iterrows():
-        s_id = row.get('issue_id', 'UI_DEF')
-        s_icon = row.get('icon_number', 'ICON_01')
-        s_mod = row.get('module_name', '')
-        s_screen = row.get('screen_name', '')
-        s_lang = row.get('language', '')
-        s_type = row.get('issue_type', '')
-        s_sev = row.get('severity', 'Medium')
-        s_desc = row.get('description', '')
-        s_notes = row.get('developer_notes', '')
-        s_by = row.get('detected_by', '')
-        s_date = row.get('created_at', '')
+        s_id = str(row.get('issue_id', 'UI_DEF'))
+        s_icon = str(row.get('icon_number', 'ICON_01'))
+        s_mod = str(row.get('module_name', ''))
+        s_screen = str(row.get('screen_name', ''))
+        s_lang = str(row.get('language', ''))
+        s_type = str(row.get('issue_type', ''))
+        s_sev = str(row.get('severity', 'Medium'))
+        s_desc = str(row.get('description', ''))
+        s_notes = str(row.get('developer_notes', ''))
+        s_by = str(row.get('detected_by', ''))
+        s_date = str(row.get('created_at', ''))
 
+        # Constructing structured detail rows inside the card container
         card_data = [
-            [Paragraph(f"<b>Issue ID:</b> {s_id} | <b>Icon:</b> {s_icon}", normal_style), Paragraph(f"<b>Severity:</b> {s_sev}", normal_style)],
-            [Paragraph(f"<b>Module:</b> {s_mod}", normal_style), Paragraph(f"<b>Screen:</b> {s_screen}", normal_style)],
-            [Paragraph(f"<b>Language:</b> {s_lang}", normal_style), Paragraph(f"<b>Type:</b> {s_type}", normal_style)],
-            [Paragraph(f"<b>Description:</b> {s_desc}", normal_style), Paragraph(f"<b>Developer Notes:</b> {s_notes}", normal_style)],
-            [Paragraph(f"<b>Detected By:</b> {s_by} | <b>Date:</b> {s_date}", normal_style), Paragraph("", normal_style)]
+            [
+                Paragraph(f"<b>Issue ID:</b> {s_id}", card_val_style), 
+                Paragraph(f"<b>Icon Ref:</b> <font color='#D98880'><b>{s_icon}</b></font>", card_val_style),
+                Paragraph(f"<b>Severity:</b> <font color='{'#C0392B' if s_sev=='Critical' else '#D35400' if s_sev=='High' else '#27AE60'}'>{s_sev}</font>", card_val_style)
+            ],
+            [
+                Paragraph(f"<b>Module:</b> {s_mod}", card_label_style),
+                Paragraph(f"<b>Screen / Component:</b> {s_screen}", card_label_style),
+                Paragraph(f"<b>Language:</b> {s_lang}", card_label_style)
+            ],
+            [
+                Paragraph(f"<b>Issue Type:</b> {s_type}", card_label_style),
+                Paragraph(f"<b>Detected By:</b> {s_by}", card_label_style),
+                Paragraph(f"<b>Date:</b> {s_date}", card_label_style)
+            ],
+            [
+                Paragraph(f"<b>Description:</b> {s_desc}", card_label_style),
+                "", ""
+            ],
+            [
+                Paragraph(f"<b>Developer Fix Notes:</b> {s_notes if s_notes else 'None provided'}", card_label_style),
+                "", ""
+            ]
         ]
 
-        # Process images for PDF embedding
+        table_structure = Table(card_data, colWidths=[180, 180, 180])
+        table_structure.setStyle(TableStyle([
+            ('SPAN', (0, 3), (2, 3)),  # Span description across columns
+            ('SPAN', (0, 4), (2, 4)),  # Span dev notes across columns
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDC3C7')),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E8E8')),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ]))
+
+        issue_block = [table_structure]
+        
+        # Process and align up to 3 images side-by-side with clear icon reference tags
         img_elements = []
+        img_captions = []
         img_fields = ['image1', 'image2', 'image3']
-        for img_f in img_fields:
+        
+        for i, img_f in enumerate(img_fields, 1):
             img_b64 = row.get(img_f, '')
             if img_b64 and str(img_b64).strip() != "":
                 try:
                     img_bytes = base64.b64decode(img_b64)
                     img_io = io.BytesIO(img_bytes)
-                    rl_img = RLImage(img_io, width=120, height=90)
+                    rl_img = RLImage(img_io, width=150, height=110)
                     img_elements.append(rl_img)
-                except Exception:
-                    pass
+                    img_captions.append(Paragraph(f"<font size=8 color='#555555'><b>Proof {i} ({s_icon})</b></font>", ParagraphStyle('Cap', alignment=1)))
+                except Exception as e:
+                    print(f"PDF Image Embedding Error: {e}")
 
-        table_structure = Table(card_data, colWidths=[260, 260])
-        table_structure.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
-            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#D3D3D3')),
-            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E5E5')),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-        ]))
-
-        issue_block = [table_structure]
         if img_elements:
-            img_table_data = [img_elements]
-            img_table = Table(img_table_data, colWidths=[135]*len(img_elements))
+            img_table_data = [img_elements, img_captions]
+            col_w = 540 / len(img_elements)
+            img_table = Table(img_table_data, colWidths=[col_w]*len(img_elements))
             img_table.setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#D5D8DC')),
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F2F4F4'))
             ]))
             issue_block.append(Spacer(1, 4))
             issue_block.append(img_table)
 
-        issue_block.append(Spacer(1, 15))
+        issue_block.append(Spacer(1, 14))
         story.append(KeepTogether(issue_block))
 
     doc.build(story)
