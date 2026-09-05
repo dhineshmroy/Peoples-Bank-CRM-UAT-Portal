@@ -172,88 +172,14 @@ def generate_screen_issues_excel(df):
     excel_buffer.seek(0)
     return excel_buffer
 
-import os
-import urllib.request
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+import io
+import base64
+from datetime import datetime
+from weasyprint import HTML
 
 def generate_screen_issues_pdf(df):
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        pdf_buffer, 
-        pagesize=letter,
-        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
-    )
+    html_cards = ""
     
-    styles = getSampleStyleSheet()
-    
-    font_name = "Helvetica"
-    font_bold_name = "Helvetica-Bold"
-    
-    local_font_dir = "fonts"
-    local_font_path = os.path.join(local_font_dir, "DejaVuSans.ttf")
-    
-    # Safely download a standard static TrueType Unicode font if missing
-    if not os.path.exists(local_font_path):
-        try:
-            os.makedirs(local_font_dir, exist_ok=True)
-            font_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
-            urllib.request.urlretrieve(font_url, local_font_path)
-        except Exception as e:
-            print(f"Font download warning: {e}")
-            
-    if os.path.exists(local_font_path):
-        try:
-            pdfmetrics.registerFont(TTFont('UnicodeReg', local_font_path))
-            font_name = 'UnicodeReg'
-            font_bold_name = 'UnicodeReg'
-        except Exception as e:
-            print(f"Font registration error: {e}")
-
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontName=font_bold_name,
-        fontSize=15,
-        textColor=colors.HexColor('#1B365D'),
-        spaceAfter=2,
-        alignment=0
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'DocSubtitle',
-        parent=styles['Normal'],
-        fontName=font_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#666666'),
-        spaceAfter=12,
-        alignment=0
-    )
-    
-    card_label_style = ParagraphStyle(
-        'CardLabel',
-        parent=styles['Normal'],
-        fontName=font_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#333333'),
-        leading=14
-    )
-    
-    card_val_style = ParagraphStyle(
-        'CardVal',
-        parent=styles['Normal'],
-        fontName=font_bold_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#1B365D'),
-        leading=14
-    )
-
-    story = [
-        Paragraph("PEOPLE'S BANK — CRM UAT UI & SCREEN ISSUES REGISTER", title_style),
-        Paragraph(f"Official Quality Assurance Report | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style),
-        HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1B365D'), spaceBefore=0, spaceAfter=10)
-    ]
-
     for idx, row in df.iterrows():
         s_id = str(row.get('issue_id', 'UI_DEF'))
         s_icon = str(row.get('icon_number', 'ICON_01'))
@@ -266,86 +192,169 @@ def generate_screen_issues_pdf(df):
         s_notes = str(row.get('developer_notes', ''))
         s_by = str(row.get('detected_by', ''))
         s_date = str(row.get('created_at', ''))
-
-        card_data = [
-            [
-                Paragraph(f"<b>Issue ID:</b> {s_id}", card_val_style), 
-                Paragraph(f"<b>Icon Ref:</b> {s_icon}", card_val_style),
-                Paragraph(f"<b>Severity:</b> {s_sev}", card_val_style)
-            ],
-            [
-                Paragraph(f"<b>Module:</b> {s_mod}", card_label_style),
-                Paragraph(f"<b>Screen / Component:</b> {s_screen}", card_label_style),
-                Paragraph(f"<b>Language:</b> {s_lang}", card_label_style)
-            ],
-            [
-                Paragraph(f"<b>Issue Type:</b> {s_type}", card_label_style),
-                Paragraph(f"<b>Detected By:</b> {s_by}", card_label_style),
-                Paragraph(f"<b>Date:</b> {s_date}", card_label_style)
-            ],
-            [
-                Paragraph(f"<b>Description / Spelling Error:</b> {s_desc}", card_label_style),
-                "", ""
-            ],
-            [
-                Paragraph(f"<b>Developer Fix Notes:</b> {s_notes if s_notes else 'None provided'}", card_label_style),
-                "", ""
-            ]
-        ]
-
-        table_structure = Table(card_data, colWidths=[180, 180, 180])
-        table_structure.setStyle(TableStyle([
-            ('SPAN', (0, 3), (2, 3)),
-            ('SPAN', (0, 4), (2, 4)),
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
-            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDC3C7')),
-            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E8E8')),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('LEFTPADDING', (0,0), (-1,-1), 8),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ]))
-
-        issue_block = [table_structure]
         
-        img_elements = []
-        img_captions = []
+        sev_color = '#C0392B' if s_sev.lower() == 'critical' else ('#D35400' if s_sev.lower() == 'high' else '#27AE60')
+        
+        img_html = ""
+        img_tags = []
         img_fields = ['image1', 'image2', 'image3']
-        
         for i, img_f in enumerate(img_fields, 1):
             img_b64 = row.get(img_f, '')
             if img_b64 and str(img_b64).strip() != "":
-                try:
-                    img_bytes = base64.b64decode(img_b64)
-                    img_io = io.BytesIO(img_bytes)
-                    rl_img = RLImage(img_io, width=150, height=110)
-                    img_elements.append(rl_img)
-                    img_captions.append(Paragraph(f"<font size=8 color='#555555'><b>Proof {i} ({s_icon})</b></font>", ParagraphStyle('Cap', fontName=font_name, alignment=1)))
-                except Exception as e:
-                    print(f"PDF Image Embedding Error: {e}")
+                img_tags.append(f'''
+                    <div class="img-box">
+                        <img src="data:image/png;base64,{img_b64}" />
+                        <div class="img-cap">Proof {i} ({s_icon})</div>
+                    </div>
+                ''')
+        if img_tags:
+            img_html = f'<div class="img-container">{"".join(img_tags)}</div>'
+            
+        html_cards += f'''
+        <div class="card">
+            <table class="card-header-table">
+                <tr>
+                    <td style="width: 33%;"><b>Issue ID:</b> {s_id}</td>
+                    <td style="width: 33%;"><b>Icon Ref:</b> {s_icon}</td>
+                    <td style="width: 34%;"><b>Severity:</b> <span style="color: {sev_color}; font-weight: bold;">{s_sev}</span></td>
+                </tr>
+            </table>
+            <table class="card-body-table">
+                <tr>
+                    <td><b>Module:</b> {s_mod}</td>
+                    <td><b>Screen:</b> {s_screen}</td>
+                    <td><b>Language:</b> {s_lang}</td>
+                </tr>
+                <tr>
+                    <td><b>Issue Type:</b> {s_type}</td>
+                    <td><b>Detected By:</b> {s_by}</td>
+                    <td><b>Date:</b> {s_date}</td>
+                </tr>
+                <tr>
+                    <td colspan="3" style="padding-top: 6px;"><b>Description / Spelling Error:</b><br/><div style="margin-top: 3px;">{s_desc}</div></td>
+                </tr>
+                <tr>
+                    <td colspan="3" style="padding-top: 6px;"><b>Developer Fix Notes:</b><br/><div style="margin-top: 3px;">{s_notes if s_notes else 'None provided'}</div></td>
+                </tr>
+            </table>
+            {img_html}
+        </div>
+        '''
 
-        if img_elements:
-            img_table_data = [img_elements, img_captions]
-            col_w = 540 / len(img_elements)
-            img_table = Table(img_table_data, colWidths=[col_w]*len(img_elements))
-            img_table.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('TOPPADDING', (0,0), (-1,-1), 4),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#D5D8DC')),
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F2F4F4'))
-            ]))
-            issue_block.append(Spacer(1, 4))
-            issue_block.append(img_table)
+    full_html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Noto+Sans:wght@400;700&display=swap');
+        
+        @page {{
+            size: letter;
+            margin: 20mm 15mm 20mm 15mm;
+            @top-left {{
+                content: "People's Bank — CRM UAT UI Issues Register";
+                font-family: 'Noto Sans', sans-serif;
+                font-size: 8pt;
+                color: #666;
+            }}
+            @bottom-right {{
+                content: "Page " counter(page) " of " counter(pages);
+                font-family: 'Noto Sans', sans-serif;
+                font-size: 8pt;
+                color: #666;
+            }}
+        }}
+        
+        body {{
+            font-family: 'Noto Sans', 'Noto Sans Sinhala', 'Noto Sans Tamil', sans-serif;
+            color: #333333;
+            font-size: 9pt;
+            line-height: 1.4;
+        }}
+        
+        h1.doc-title {{
+            color: #1B365D;
+            font-size: 15pt;
+            margin-bottom: 2px;
+            border-bottom: 2px solid #1B365D;
+            padding-bottom: 6px;
+        }}
+        
+        .doc-subtitle {{
+            font-size: 8.5pt;
+            color: #666666;
+            margin-bottom: 15px;
+        }}
+        
+        .card {{
+            background-color: #F8F9FA;
+            border: 1px solid #BDC3C7;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+            page-break-inside: avoid;
+        }}
+        
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        
+        td {{
+            padding: 3px 4px;
+            vertical-align: top;
+            font-size: 8.5pt;
+        }}
+        
+        .card-header-table {{
+            border-bottom: 1px solid #D5D8DC;
+            margin-bottom: 6px;
+            padding-bottom: 4px;
+        }}
+        
+        .img-container {{
+            margin-top: 8px;
+            text-align: center;
+            background-color: #F2F4F4;
+            border: 0.5px solid #D5D8DC;
+            padding: 6px;
+            border-radius: 3px;
+        }}
+        
+        .img-box {{
+            display: inline-block;
+            margin: 4px 8px;
+            text-align: center;
+            vertical-align: top;
+        }}
+        
+        .img-box img {{
+            max-width: 130px;
+            max-height: 95px;
+            border: 1px solid #ccc;
+            background: #fff;
+            padding: 2px;
+        }}
+        
+        .img-cap {{
+            font-size: 7.5pt;
+            color: #555;
+            margin-top: 2px;
+            font-weight: bold;
+        }}
+    </style>
+    </head>
+    <body>
+        <h1 class="doc-title">PEOPLE'S BANK — CRM UAT UI & SCREEN ISSUES REGISTER</h1>
+        <div class="doc-subtitle">Official Quality Assurance Report | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+        {html_cards}
+    </body>
+    </html>
+    '''
 
-        issue_block.append(Spacer(1, 14))
-        story.append(KeepTogether(issue_block))
-
-    doc.build(story)
-    pdf_buffer.seek(0)
-    return pdf_buffer
+    pdf_bytes = HTML(string=full_html).write_pdf()
+    return io.BytesIO(pdf_bytes)
 
 
 
