@@ -330,8 +330,8 @@ def generate_screen_issues_pdf(df):
         }}
         
         .img-box img {{
-            max-width: 130px;
-            max-height: 95px;
+            max-width: 220px;
+            max-height: 160px;
             border: 1px solid #ccc;
             background: #fff;
             padding: 2px;
