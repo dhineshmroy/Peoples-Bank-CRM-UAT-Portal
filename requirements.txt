@@ -164,6 +164,6 @@ word2number==1.1
 wsproto==1.3.2
 xlrd==2.0.2
 xlsxwriter==3.2.9
-weasyprint
-playwright
+weasyprints
 openpyxl
+pdfkit

@@ -174,16 +174,10 @@ def generate_screen_issues_excel(df):
 
 import io
 import base64
-import os
+import pdfkit
 from datetime import datetime
-from playwright.sync_api import sync_playwright
 
 def generate_screen_issues_pdf(df):
-    # Automatically install Playwright browser binaries on first run (cached in home directory)
-    browser_cache = os.path.expanduser("~/.cache/ms-playwright")
-    if not os.path.exists(browser_cache):
-        os.system("playwright install chromium")
-
     html_cards = ""
     for idx, row in df.iterrows():
         s_id = str(row.get('issue_id', 'UI_DEF'))
@@ -203,27 +197,23 @@ def generate_screen_issues_pdf(df):
             img_b64 = row.get(f'image{i}', '')
             if img_b64 and str(img_b64).strip() != "":
                 img_html += f'''
-                <div style="text-align: center; margin: 4px;">
-                    <img src="data:image/png;base64,{img_b64}" style="max-width: 160px; height: auto; border: 1px solid #ccc; border-radius: 4px;"/>
+                <div style="text-align: center; margin: 4px; display: inline-block;">
+                    <img src="data:image/png;base64,{img_b64}" style="max-width: 150px; height: auto; border: 1px solid #ccc; border-radius: 4px;"/>
                     <br/><small style="color: #555;">Proof {i} ({s_icon})</small>
                 </div>'''
 
         html_cards += f"""
         <div style="border: 1px solid #BDC3C7; background-color: #F8F9FA; border-radius: 6px; padding: 12px; margin-bottom: 14px; page-break-inside: avoid;">
-            <div style="display: flex; justify-content: space-between; font-weight: bold; color: #1B365D; margin-bottom: 8px; font-size: 12px;">
-                <span>Issue ID: {s_id}</span>
-                <span>Icon Ref: {s_icon}</span>
+            <div style="font-weight: bold; color: #1B365D; margin-bottom: 8px; font-size: 12px;">
+                <span>Issue ID: {s_id}</span> &nbsp;|&nbsp; 
+                <span>Icon Ref: {s_icon}</span> &nbsp;|&nbsp; 
                 <span>Severity: {s_sev}</span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 6px; color: #333;">
-                <div><b>Module:</b> {s_mod}</div>
-                <div><b>Screen:</b> {s_screen}</div>
-                <div><b>Language:</b> {s_lang}</div>
+            <div style="font-size: 11px; margin-bottom: 6px; color: #333;">
+                <b>Module:</b> {s_mod} &nbsp;|&nbsp; <b>Screen:</b> {s_screen} &nbsp;|&nbsp; <b>Language:</b> {s_lang}
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 8px; color: #333;">
-                <div><b>Type:</b> {s_type}</div>
-                <div><b>Detected By:</b> {s_by}</div>
-                <div><b>Date:</b> {s_date}</div>
+            <div style="font-size: 11px; margin-bottom: 8px; color: #333;">
+                <b>Type:</b> {s_type} &nbsp;|&nbsp; <b>Detected By:</b> {s_by} &nbsp;|&nbsp; <b>Date:</b> {s_date}
             </div>
             <div style="font-size: 11px; margin-bottom: 6px; color: #333; line-height: 1.4;">
                 <b>Description / Spelling Error:</b><br/>{s_desc}
@@ -231,7 +221,7 @@ def generate_screen_issues_pdf(df):
             <div style="font-size: 11px; margin-bottom: 8px; color: #333; line-height: 1.4;">
                 <b>Developer Fix Notes:</b><br/>{s_notes if s_notes else 'None provided'}
             </div>
-            {"<div style='display: flex; justify-content: center; gap: 10px; margin-top: 8px; background: #F2F4F4; padding: 6px; border-radius: 4px;'>" + img_html + "</div>" if img_html else ""}
+            {"<div style='text-align: center; margin-top: 8px; background: #F2F4F4; padding: 6px; border-radius: 4px;'>" + img_html + "</div>" if img_html else ""}
         </div>
         """
 
@@ -241,7 +231,7 @@ def generate_screen_issues_pdf(df):
     <head>
         <meta charset="utf-8">
         <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; }}
+            body {{ font-family: Arial, sans-serif; color: #333; margin: 0; padding: 0; }}
             h1 {{ color: #1B365D; font-size: 16px; margin-bottom: 4px; }}
             .subtitle {{ color: #666; font-size: 10px; margin-bottom: 12px; }}
             hr {{ border: none; height: 1.5px; background-color: #1B365D; margin-bottom: 12px; }}
@@ -256,20 +246,20 @@ def generate_screen_issues_pdf(df):
     </html>
     """
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu"
-            ]
-        )
-        page = browser.new_page()
-        page.set_content(full_html, wait_until="load")
-        pdf_bytes = page.pdf(format="A4", print_background=True, margin={"top": "25px", "bottom": "25px", "left": "25px", "right": "25px"})
-        browser.close()
+    options = {
+        'page-size': 'A4',
+        'margin-top': '20mm',
+        'margin-bottom': '20mm',
+        'margin-left': '20mm',
+        'margin-right': '20mm',
+        'encoding': "UTF-8",
+        'no-outline': None
+    }
+
+    pdf_bytes = pdfkit.from_string(full_html, False, options=options)
+    pdf_buffer = io.BytesIO(pdf_bytes)
+    pdf_buffer.seek(0)
+    return pdf_buffer
 
 
 def clean_val(val):
