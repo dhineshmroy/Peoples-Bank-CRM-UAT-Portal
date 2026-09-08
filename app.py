@@ -175,94 +175,16 @@ def generate_screen_issues_excel(df):
 import io
 import base64
 import os
-import urllib.request
 from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus.flowables import HRFlowable
-from reportlab.platypus import Image as RLImage
+from playwright.sync_api import sync_playwright
 
 def generate_screen_issues_pdf(df):
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        pdf_buffer, 
-        pagesize=letter,
-        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
-    )
-    
-    styles = getSampleStyleSheet()
-    
-    font_name = "Helvetica"
-    font_bold_name = "Helvetica-Bold"
-    
-    local_font_dir = "fonts"
-    local_font_path = os.path.join(local_font_dir, "DejaVuSans.ttf")
-    
-    # Download a clean Unicode font supporting Sinhala & Tamil symbols safely
-    if not os.path.exists(local_font_path):
-        try:
-            os.makedirs(local_font_dir, exist_ok=True)
-            font_url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
-            urllib.request.urlretrieve(font_url, local_font_path)
-        except Exception as e:
-            print(f"Font download warning: {e}")
-            
-    if os.path.exists(local_font_path):
-        try:
-            pdfmetrics.registerFont(TTFont('UnicodeReg', local_font_path))
-            font_name = 'UnicodeReg'
-            font_bold_name = 'UnicodeReg'
-        except Exception as e:
-            print(f"Font registration error: {e}")
+    # Automatically install Playwright browser binaries on first run (cached in home directory)
+    browser_cache = os.path.expanduser("~/.cache/ms-playwright")
+    if not os.path.exists(browser_cache):
+        os.system("playwright install chromium")
 
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontName=font_bold_name,
-        fontSize=15,
-        textColor=colors.HexColor('#1B365D'),
-        spaceAfter=2,
-        alignment=0
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'DocSubtitle',
-        parent=styles['Normal'],
-        fontName=font_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#666666'),
-        spaceAfter=12,
-        alignment=0
-    )
-    
-    card_label_style = ParagraphStyle(
-        'CardLabel',
-        parent=styles['Normal'],
-        fontName=font_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#333333'),
-        leading=14
-    )
-    
-    card_val_style = ParagraphStyle(
-        'CardVal',
-        parent=styles['Normal'],
-        fontName=font_bold_name,
-        fontSize=8.5,
-        textColor=colors.HexColor('#1B365D'),
-        leading=14
-    )
-
-    story = [
-        Paragraph("PEOPLE'S BANK — CRM UAT UI & SCREEN ISSUES REGISTER", title_style),
-        Paragraph(f"Official Quality Assurance Report | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style),
-        HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1B365D'), spaceBefore=0, spaceAfter=10)
-    ]
-
+    html_cards = ""
     for idx, row in df.iterrows():
         s_id = str(row.get('issue_id', 'UI_DEF'))
         s_icon = str(row.get('icon_number', 'ICON_01'))
@@ -276,83 +198,72 @@ def generate_screen_issues_pdf(df):
         s_by = str(row.get('detected_by', ''))
         s_date = str(row.get('created_at', ''))
 
-        card_data = [
-            [
-                Paragraph(f"<b>Issue ID:</b> {s_id}", card_val_style), 
-                Paragraph(f"<b>Icon Ref:</b> {s_icon}", card_val_style),
-                Paragraph(f"<b>Severity:</b> {s_sev}", card_val_style)
-            ],
-            [
-                Paragraph(f"<b>Module:</b> {s_mod}", card_label_style),
-                Paragraph(f"<b>Screen / Component:</b> {s_screen}", card_label_style),
-                Paragraph(f"<b>Language:</b> {s_lang}", card_label_style)
-            ],
-            [
-                Paragraph(f"<b>Issue Type:</b> {s_type}", card_label_style),
-                Paragraph(f"<b>Detected By:</b> {s_by}", card_label_style),
-                Paragraph(f"<b>Date:</b> {s_date}", card_label_style)
-            ],
-            [
-                Paragraph(f"<b>Description / Spelling Error:</b> {s_desc}", card_label_style),
-                "", ""
-            ],
-            [
-                Paragraph(f"<b>Developer Fix Notes:</b> {s_notes if s_notes else 'None provided'}", card_label_style),
-                "", ""
-            ]
-        ]
-
-        table_structure = Table(card_data, colWidths=[180, 180, 180])
-        table_structure.setStyle(TableStyle([
-            ('SPAN', (0, 3), (2, 3)),
-            ('SPAN', (0, 4), (2, 4)),
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8F9FA')),
-            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BDC3C7')),
-            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E8E8')),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('LEFTPADDING', (0,0), (-1,-1), 8),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ]))
-
-        issue_block = [table_structure]
-        
-        img_elements = []
-        img_captions = []
-        img_fields = ['image1', 'image2', 'image3']
-        
-        for i, img_f in enumerate(img_fields, 1):
-            img_b64 = row.get(img_f, '')
+        img_html = ""
+        for i in range(1, 4):
+            img_b64 = row.get(f'image{i}', '')
             if img_b64 and str(img_b64).strip() != "":
-                try:
-                    img_bytes = base64.b64decode(img_b64)
-                    img_io = io.BytesIO(img_bytes)
-                    rl_img = RLImage(img_io, width=210, height=150)
-                    img_elements.append(rl_img)
-                    img_captions.append(Paragraph(f"<font size=8 color='#555555'><b>Proof {i} ({s_icon})</b></font>", ParagraphStyle('Cap', fontName=font_name, alignment=1)))
-                except Exception as e:
-                    print(f"PDF Image Embedding Error: {e}")
+                img_html += f'''
+                <div style="text-align: center; margin: 4px;">
+                    <img src="data:image/png;base64,{img_b64}" style="max-width: 160px; height: auto; border: 1px solid #ccc; border-radius: 4px;"/>
+                    <br/><small style="color: #555;">Proof {i} ({s_icon})</small>
+                </div>'''
 
-        if img_elements:
-            img_table_data = [img_elements, img_captions]
-            col_w = 540 / len(img_elements)
-            img_table = Table(img_table_data, colWidths=[col_w]*len(img_elements))
-            img_table.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('TOPPADDING', (0,0), (-1,-1), 4),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#D5D8DC')),
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F2F4F4'))
-            ]))
-            issue_block.append(Spacer(1, 4))
-            issue_block.append(img_table)
+        html_cards += f"""
+        <div style="border: 1px solid #BDC3C7; background-color: #F8F9FA; border-radius: 6px; padding: 12px; margin-bottom: 14px; page-break-inside: avoid;">
+            <div style="display: flex; justify-content: space-between; font-weight: bold; color: #1B365D; margin-bottom: 8px; font-size: 12px;">
+                <span>Issue ID: {s_id}</span>
+                <span>Icon Ref: {s_icon}</span>
+                <span>Severity: {s_sev}</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 6px; color: #333;">
+                <div><b>Module:</b> {s_mod}</div>
+                <div><b>Screen:</b> {s_screen}</div>
+                <div><b>Language:</b> {s_lang}</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 8px; color: #333;">
+                <div><b>Type:</b> {s_type}</div>
+                <div><b>Detected By:</b> {s_by}</div>
+                <div><b>Date:</b> {s_date}</div>
+            </div>
+            <div style="font-size: 11px; margin-bottom: 6px; color: #333; line-height: 1.4;">
+                <b>Description / Spelling Error:</b><br/>{s_desc}
+            </div>
+            <div style="font-size: 11px; margin-bottom: 8px; color: #333; line-height: 1.4;">
+                <b>Developer Fix Notes:</b><br/>{s_notes if s_notes else 'None provided'}
+            </div>
+            {"<div style='display: flex; justify-content: center; gap: 10px; margin-top: 8px; background: #F2F4F4; padding: 6px; border-radius: 4px;'>" + img_html + "</div>" if img_html else ""}
+        </div>
+        """
 
-        issue_block.append(Spacer(1, 14))
-        story.append(KeepTogether(issue_block))
+    full_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; }}
+            h1 {{ color: #1B365D; font-size: 16px; margin-bottom: 4px; }}
+            .subtitle {{ color: #666; font-size: 10px; margin-bottom: 12px; }}
+            hr {{ border: none; height: 1.5px; background-color: #1B365D; margin-bottom: 12px; }}
+        </style>
+    </head>
+    <body>
+        <h1>PEOPLE'S BANK — CRM UAT UI & SCREEN ISSUES REGISTER</h1>
+        <div class="subtitle">Official Quality Assurance Report | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+        <hr/>
+        {html_cards}
+    </body>
+    </html>
+    """
 
-    doc.build(story)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(full_html, wait_until="load")
+        pdf_bytes = page.pdf(format="A4", print_background=True, margin={"top": "25px", "bottom": "25px", "left": "25px", "right": "25px"})
+        browser.close()
+
+    pdf_buffer = io.BytesIO(pdf_bytes)
     pdf_buffer.seek(0)
     return pdf_buffer
 
