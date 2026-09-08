@@ -257,16 +257,19 @@ def generate_screen_issues_pdf(df):
     """
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
+            ]
+        )
         page = browser.new_page()
         page.set_content(full_html, wait_until="load")
         pdf_bytes = page.pdf(format="A4", print_background=True, margin={"top": "25px", "bottom": "25px", "left": "25px", "right": "25px"})
         browser.close()
-
-    pdf_buffer = io.BytesIO(pdf_bytes)
-    pdf_buffer.seek(0)
-    return pdf_buffer
-
 
 
 def clean_val(val):
