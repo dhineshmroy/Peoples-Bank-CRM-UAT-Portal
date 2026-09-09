@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import io
-import oracledb
+# import oracledb
 import os
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
