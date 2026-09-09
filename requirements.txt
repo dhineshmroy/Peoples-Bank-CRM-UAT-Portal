@@ -1,5 +1,8 @@
 streamlit
 pandas
 openpyxl
-pdfkit
+reportlab
+Pillow
 psycopg2-binary
+mysql-connector-python
+oracledb
