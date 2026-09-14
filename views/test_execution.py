@@ -716,7 +716,7 @@ def render_test_execution_page():
                                 st.error(f"Error saving unloading log to database: {e}")
 
     # -------------------------------------------------------------------------
-    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER
+    # TAB 3: FINANCE EXPORT & INTERACTIVE TABLE VIEWER (WITH UPDATE & DELETE)
     # -------------------------------------------------------------------------
     with tab_export:
         st.subheader("📊 Finance Export & Interactive Table Viewer")
@@ -779,12 +779,10 @@ def render_test_execution_page():
                 selected_record_id = st.text_input("Enter Record ID manually", value="", key="manual_record_id_input")
 
         if selected_record_id:
-            # Fetch specific record details
             conn_rec = get_db_connection()
             single_row_df = pd.DataFrame()
             if conn_rec:
                 try:
-                    id_col_name = "id" # standard primary key
                     single_row_df = pd.read_sql(f"SELECT * FROM {target_table} WHERE id = %s;", conn_rec, params=(selected_record_id,))
                     conn_rec.close()
                 except Exception:
@@ -857,7 +855,6 @@ def render_test_execution_page():
                 conn = get_db_connection()
                 if conn:
                     try:
-                        # 1. Cash Loading & Unloading Summary Sheet
                         try:
                             df_cash = pd.read_sql("SELECT * FROM terminal_cash_logs ORDER BY report_date DESC LIMIT 1", conn)
                             if not df_cash.empty:
@@ -903,11 +900,9 @@ def render_test_execution_page():
                         df_cash_report = pd.DataFrame(cash_report_data, columns=["Report Information", "Details"])
                         df_cash_report.to_excel(writer, sheet_name="Cash_Loading_Unloading", index=False, startrow=2)
 
-                        # 2. Master Tab
                         df_all_raw = pd.read_sql("SELECT * FROM uat_test_executions", conn)
                         df_all_raw.to_excel(writer, sheet_name="All_Modules_Master", index=False, startrow=2)
 
-                        # 3. Individual Module Tabs
                         for mod_name in modules:
                             df_mod_raw = pd.read_sql(f"SELECT * FROM uat_test_executions WHERE module_name = '{mod_name}'", conn)
                             df_formatted = format_module_dataframe(df_mod_raw, mod_name)
