@@ -720,10 +720,10 @@ def render_test_execution_page():
     # -------------------------------------------------------------------------
     with tab_export:
         st.subheader("📊 Finance Export & Interactive Table Viewer")
-        st.markdown("View, filter, sort, and download complete multi-tab execution reports styled professionally.")
+        st.markdown("View, filter, sort, update, and delete complete multi-tab execution reports styled professionally.")
 
         view_options = ["🌐 All Modules (Combined Master View)", "💵 Cash Loading & Unloading Report"] + modules
-        selected_view_option = st.selectbox("Select Module to View/Sort", view_options, key="view_mod")
+        selected_view_option = st.selectbox("Select Module to View/Sort/Edit", view_options, key="view_mod_edit")
         
         conn = get_db_connection()
         df_raw = pd.DataFrame()
@@ -749,12 +749,89 @@ def render_test_execution_page():
 
             st.markdown(f"### 📋 Records for `{selected_view_option}`")
             
-            sort_col = st.selectbox("Sort By Column", df_view.columns.tolist(), key="sort_col")
-            sort_order = st.radio("Sort Order", ["Ascending", "Descending"], horizontal=True, key="sort_ord")
+            sort_col = st.selectbox("Sort By Column", df_view.columns.tolist(), key="sort_col_edit")
+            sort_order = st.radio("Sort Order", ["Ascending", "Descending"], horizontal=True, key="sort_ord_edit")
             ascending_bool = True if sort_order == "Ascending" else False
             
             df_sorted = df_view.sort_values(by=sort_col, ascending=ascending_bool)
             st.dataframe(df_sorted, use_container_width=True)
+
+            # -----------------------------------------------------------------
+            # UPDATE & DELETE SECTION FOR TESTERS & ADMINS
+            # -----------------------------------------------------------------
+            st.markdown("---")
+            st.subheader("🛠️ Update or Delete Record")
+            
+            is_cash_view = (selected_view_option == "💵 Cash Loading & Unloading Report")
+            id_column = "id" if "id" in df_sorted.columns else df_sorted.columns[0]
+            
+            selected_record_id = st.selectbox(
+                f"Select Record ID ({id_column}) to Modify or Delete", 
+                df_sorted[id_column].tolist(), 
+                key="record_id_selector"
+            )
+            
+            selected_row_data = df_sorted[df_sorted[id_column] == selected_record_id].iloc[0]
+
+            col_upd, col_del = st.columns(2)
+
+            with col_upd:
+                with st.form("update_record_form"):
+                    st.markdown(f"#### Edit Record ID: `{selected_record_id}`")
+                    updated_values = {}
+                    
+                    # Display editable fields based on table type
+                    for col in df_sorted.columns:
+                        if col == id_column:
+                            continue
+                        val = selected_row_data[col]
+                        if pd.isna(val):
+                            val = ""
+                        
+                        if isinstance(val, (int, float)):
+                            updated_values[col] = st.number_input(f"{col}", value=float(val), format="%.2f", key=f"upd_{col}")
+                        else:
+                            updated_values[col] = st.text_input(f"{col}", value=str(val), key=f"upd_{col}")
+
+                    if st.form_submit_button("💾 Save Changes", type="primary"):
+                        conn_upd = get_db_connection()
+                        if conn_upd:
+                            try:
+                                cur_u = conn_upd.cursor()
+                                target_table = "terminal_cash_logs" if is_cash_view else "uat_test_executions"
+                                
+                                set_clause = ", ".join([f"{k} = %s" for k in updated_values.keys()])
+                                query = f"UPDATE {target_table} SET {set_clause} WHERE {id_column} = %s;"
+                                
+                                params = list(updated_values.values()) + [selected_record_id]
+                                cur_u.execute(query, params)
+                                conn_upd.commit()
+                                cur_u.close()
+                                conn_upd.close()
+                                st.success(f"Successfully updated record ID `{selected_record_id}`!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to update record: {e}")
+
+            with col_del:
+                st.markdown(f"#### 🗑️ Delete Record ID: `{selected_record_id}`")
+                st.warning("⚠️ Deletion is permanent and cannot be undone.")
+                
+                if st.button(f"🗑️ Confirm & Delete ID `{selected_record_id}`", type="secondary"):
+                    conn_del = get_db_connection()
+                    if conn_del:
+                        try:
+                            cur_d = conn_del.cursor()
+                            target_table = "terminal_cash_logs" if is_cash_view else "uat_test_executions"
+                            cur_d.execute(f"DELETE FROM {target_table} WHERE {id_column} = %s;", (selected_record_id,))
+                            conn_del.commit()
+                            cur_d.close()
+                            conn_del.close()
+                            st.success(f"Successfully deleted record ID `{selected_record_id}`!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to delete record: {e}")
+
         else:
             st.info(f"No records found for `{selected_view_option}` yet.")
 
@@ -767,7 +844,7 @@ def render_test_execution_page():
                 conn = get_db_connection()
                 if conn:
                     try:
-                        # 1. Cash Loading & Unloading Summary Sheet (Formatted exactly as requested)
+                        # 1. Cash Loading & Unloading Summary Sheet
                         try:
                             df_cash = pd.read_sql("SELECT * FROM terminal_cash_logs ORDER BY report_date DESC LIMIT 1", conn)
                             if not df_cash.empty:
@@ -777,7 +854,6 @@ def render_test_execution_page():
                             else:
                                 term_id_val, date_val = "S169RB02", datetime.today().strftime('%Y-%m-%d')
                             
-                            # Fetch totals per session
                             df_all_cash = pd.read_sql("SELECT loading_session, load_time, loading_total FROM terminal_cash_logs", conn)
                             session_dict = {}
                             total_loaded = 0.0
@@ -827,9 +903,7 @@ def render_test_execution_page():
                     except Exception as e:
                         st.error(f"Error compiling export: {e}")
             
-            # Post-process workbook with openpyxl for exact custom formatting
             output.seek(0)
-            import openpyxl
             wb = openpyxl.load_workbook(output)
             
             navy_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
@@ -848,13 +922,11 @@ def render_test_execution_page():
                 
                 max_col = ws.max_column
                 
-                # Custom Title for Cash Report vs Test Execution Reports
                 if sheet_name == "Cash_Loading_Unloading":
                     title_text = "CASH LOADING & UNLOADING REPORT"
                 else:
                     title_text = f"UAT Test Execution Report - {sheet_name}"
 
-                # Merge Row 1 for the title block
                 ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
                 title_cell = ws.cell(row=1, column=1, value=title_text)
                 title_cell.font = title_font
@@ -862,7 +934,6 @@ def render_test_execution_page():
                 title_cell.alignment = Alignment(horizontal="center", vertical="center")
                 ws.row_dimensions[1].height = 30
                 
-                # Style header row (Row 3)
                 ws.row_dimensions[3].height = 25
                 for col_idx in range(1, max_col + 1):
                     cell = ws.cell(row=3, column=col_idx)
@@ -871,7 +942,6 @@ def render_test_execution_page():
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                     cell.border = thin_border
                 
-                # Apply center alignment and borders to all data cells
                 for row in range(4, ws.max_row + 1):
                     ws.row_dimensions[row].height = 20
                     for col_idx in range(1, max_col + 1):
@@ -879,7 +949,6 @@ def render_test_execution_page():
                         cell.border = thin_border
                         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-                # Auto-fit column widths
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col[0].column)
@@ -895,6 +964,3 @@ def render_test_execution_page():
                 file_name=f"PeoplesBank_CRM_Finance_Master_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
-if __name__ == "__main__":
-    render_test_execution_page()
