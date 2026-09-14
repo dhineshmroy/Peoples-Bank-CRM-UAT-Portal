@@ -755,85 +755,98 @@ def render_test_execution_page():
             
             df_sorted = df_view.sort_values(by=sort_col, ascending=ascending_bool)
             st.dataframe(df_sorted, use_container_width=True)
-
-            # -----------------------------------------------------------------
-            # UPDATE & DELETE SECTION FOR TESTERS & ADMINS
-            # -----------------------------------------------------------------
-            st.markdown("---")
-            st.subheader("🛠️ Update or Delete Record")
             
-            is_cash_view = (selected_view_option == "💵 Cash Loading & Unloading Report")
-            id_column = "id" if "id" in df_sorted.columns else df_sorted.columns[0]
-            
-            selected_record_id = st.selectbox(
-                f"Select Record ID ({id_column}) to Modify or Delete", 
-                df_sorted[id_column].tolist(), 
-                key="record_id_selector"
-            )
-            
-            selected_row_data = df_sorted[df_sorted[id_column] == selected_record_id].iloc[0]
+            record_ids = df_sorted[df_sorted.columns[0]].tolist()
+        else:
+            st.info(f"No records found for `{selected_view_option}` yet. You can still modify records by entering an ID manually below.")
+            df_sorted = pd.DataFrame()
+            record_ids = []
 
-            col_upd, col_del = st.columns(2)
+        # -----------------------------------------------------------------
+        # UPDATE & DELETE SECTION (ALWAYS VISIBLE)
+        # -----------------------------------------------------------------
+        st.markdown("---")
+        st.subheader("🛠️ Update or Delete Record")
+        
+        is_cash_view = (selected_view_option == "💵 Cash Loading & Unloading Report")
+        target_table = "terminal_cash_logs" if is_cash_view else "uat_test_executions"
 
-            with col_upd:
-                with st.form("update_record_form"):
-                    st.markdown(f"#### Edit Record ID: `{selected_record_id}`")
-                    updated_values = {}
-                    
-                    # Display editable fields based on table type
-                    for col in df_sorted.columns:
-                        if col == id_column:
-                            continue
-                        val = selected_row_data[col]
-                        if pd.isna(val):
-                            val = ""
+        col_sel1, col_sel2 = st.columns(2)
+        with col_sel1:
+            if record_ids:
+                selected_record_id = st.selectbox("Select Record ID to Modify or Delete", record_ids, key="record_id_selector")
+            else:
+                selected_record_id = st.text_input("Enter Record ID manually", value="", key="manual_record_id_input")
+
+        if selected_record_id:
+            # Fetch specific record details
+            conn_rec = get_db_connection()
+            single_row_df = pd.DataFrame()
+            if conn_rec:
+                try:
+                    id_col_name = "id" # standard primary key
+                    single_row_df = pd.read_sql(f"SELECT * FROM {target_table} WHERE id = %s;", conn_rec, params=(selected_record_id,))
+                    conn_rec.close()
+                except Exception:
+                    pass
+
+            if not single_row_df.empty:
+                row_data = single_row_df.iloc[0]
+                col_upd, col_del = st.columns(2)
+
+                with col_upd:
+                    with st.form(f"update_form_{selected_record_id}"):
+                        st.markdown(f"#### Edit Record ID: `{selected_record_id}`")
+                        updated_values = {}
                         
-                        if isinstance(val, (int, float)):
-                            updated_values[col] = st.number_input(f"{col}", value=float(val), format="%.2f", key=f"upd_{col}")
-                        else:
-                            updated_values[col] = st.text_input(f"{col}", value=str(val), key=f"upd_{col}")
+                        for col in single_row_df.columns:
+                            if col == "id":
+                                continue
+                            val = row_data[col]
+                            if pd.isna(val):
+                                val = ""
+                            
+                            if isinstance(val, (int, float)):
+                                updated_values[col] = st.number_input(f"{col}", value=float(val), format="%.2f", key=f"upd_{selected_record_id}_{col}")
+                            else:
+                                updated_values[col] = st.text_input(f"{col}", value=str(val), key=f"upd_{selected_record_id}_{col}")
 
-                    if st.form_submit_button("💾 Save Changes", type="primary"):
-                        conn_upd = get_db_connection()
-                        if conn_upd:
+                        if st.form_submit_button("💾 Save Changes", type="primary"):
+                            conn_upd = get_db_connection()
+                            if conn_upd:
+                                try:
+                                    cur_u = conn_upd.cursor()
+                                    set_clause = ", ".join([f"{k} = %s" for k in updated_values.keys()])
+                                    query = f"UPDATE {target_table} SET {set_clause} WHERE id = %s;"
+                                    params = list(updated_values.values()) + [selected_record_id]
+                                    cur_u.execute(query, params)
+                                    conn_upd.commit()
+                                    cur_u.close()
+                                    conn_upd.close()
+                                    st.success(f"Successfully updated record ID `{selected_record_id}`!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to update record: {e}")
+
+                with col_del:
+                    st.markdown(f"#### 🗑️ Delete Record ID: `{selected_record_id}`")
+                    st.warning("⚠️ Deletion is permanent and cannot be undone.")
+                    
+                    if st.button(f"🗑️ Confirm & Delete ID `{selected_record_id}`", type="secondary", key=f"del_btn_{selected_record_id}"):
+                        conn_del = get_db_connection()
+                        if conn_del:
                             try:
-                                cur_u = conn_upd.cursor()
-                                target_table = "terminal_cash_logs" if is_cash_view else "uat_test_executions"
-                                
-                                set_clause = ", ".join([f"{k} = %s" for k in updated_values.keys()])
-                                query = f"UPDATE {target_table} SET {set_clause} WHERE {id_column} = %s;"
-                                
-                                params = list(updated_values.values()) + [selected_record_id]
-                                cur_u.execute(query, params)
-                                conn_upd.commit()
-                                cur_u.close()
-                                conn_upd.close()
-                                st.success(f"Successfully updated record ID `{selected_record_id}`!")
+                                cur_d = conn_del.cursor()
+                                cur_d.execute(f"DELETE FROM {target_table} WHERE id = %s;", (selected_record_id,))
+                                conn_del.commit()
+                                cur_d.close()
+                                conn_del.close()
+                                st.success(f"Successfully deleted record ID `{selected_record_id}`!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Failed to update record: {e}")
-
-            with col_del:
-                st.markdown(f"#### 🗑️ Delete Record ID: `{selected_record_id}`")
-                st.warning("⚠️ Deletion is permanent and cannot be undone.")
-                
-                if st.button(f"🗑️ Confirm & Delete ID `{selected_record_id}`", type="secondary"):
-                    conn_del = get_db_connection()
-                    if conn_del:
-                        try:
-                            cur_d = conn_del.cursor()
-                            target_table = "terminal_cash_logs" if is_cash_view else "uat_test_executions"
-                            cur_d.execute(f"DELETE FROM {target_table} WHERE {id_column} = %s;", (selected_record_id,))
-                            conn_del.commit()
-                            cur_d.close()
-                            conn_del.close()
-                            st.success(f"Successfully deleted record ID `{selected_record_id}`!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to delete record: {e}")
-
-        else:
-            st.info(f"No records found for `{selected_view_option}` yet.")
+                                st.error(f"Failed to delete record: {e}")
+            else:
+                st.info("Enter or select a valid existing Record ID above to load its edit/delete controls.")
 
         st.markdown("---")
         st.subheader("📥 Download Styled Multi-Tab Finance Workbook")
