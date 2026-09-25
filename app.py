@@ -2077,161 +2077,168 @@ elif menu == "🧪 Test Execution & Scenarios":
 # 🚀 PRE-PRODUCTION TESTING & COMPLETION REPORT
 # ---------------------------------------------------------
 elif menu == "🚀 Pre-Production Testing":
-    st.subheader("🚀 Pre-Production Testing & Database Tracker")
-    st.markdown("Manage pre-production verification for Visa, Mastercard, JCB withdrawals and general CRM transactions stored securely in Supabase.")
+    st.subheader("🚀 Pre-Production Testing & Automated Report Portal")
+    st.markdown("Manage pre-production verification for Visa, Mastercard, JCB withdrawals and general CRM transactions directly from your completion report template.")
 
     can_execute = current_role in ["Admin / Manager", "Tester"]
     if not can_execute:
         st.warning("⚠️ Your current role has **Viewer** privileges. Execution updates are restricted.")
 
-    # Fetch Pre-Prod data from Supabase
-    conn_pre = get_db_connection()
-    preprod_df = pd.DataFrame()
-    if conn_pre:
+    # Load and cache Excel sheets safely into session state
+    if "preprod_data" not in st.session_state:
         try:
-            # Ensure table exists
-            cur_p = conn_pre.cursor()
-            cur_p.execute("""
-                CREATE TABLE IF NOT EXISTS preprod_test_executions (
-                    id SERIAL PRIMARY KEY,
-                    tc_id VARCHAR(100) UNIQUE,
-                    card_scheme VARCHAR(100),
-                    card_type VARCHAR(100),
-                    issuing_bank VARCHAR(100),
-                    account_type VARCHAR(100),
-                    withdrawal_amount NUMERIC(15,2),
-                    atm_crm_id VARCHAR(50),
-                    account_reference_no VARCHAR(100),
-                    rrn VARCHAR(100),
-                    stan_utano VARCHAR(100),
-                    fe_status VARCHAR(100),
-                    sibs_status VARCHAR(100),
-                    overall_status VARCHAR(50) DEFAULT 'NOT EXECUTED',
-                    execution_date TIMESTAMP,
-                    tester VARCHAR(100),
-                    remarks TEXT,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn_pre.commit()
-            cur_p.close()
+            excel_path = "CRM_Pre-Prod_Withdrawal_Visa_Mastercard_JCB_Completion_Report.xlsx"
+            xls = pd.ExcelFile(excel_path)
+            
+            # 1. Load Withdrawal Card Matrix
+            mat_raw = xls.parse("Withdrawal - Card Matrix", header=7)
+            mat_raw['TC ID'] = mat_raw['TC ID'].ffill()
+            mat_raw['Card Scheme'] = mat_raw['Card Scheme'].ffill()
+            mat_raw['Card Type'] = mat_raw['Card Type'].ffill()
+            mat_raw['Issuing Bank'] = mat_raw['Issuing Bank'].ffill()
 
-            preprod_df = pd.read_sql("SELECT * FROM preprod_test_executions ORDER BY tc_id ASC", conn_pre)
-            conn_pre.close()
+            # 2. Load Execution Report (All Transactions)
+            exec_raw = xls.parse("Execution Report", header=6)
+            exec_raw['TC ID'] = exec_raw['TC ID'].ffill()
+            exec_raw['Transaction Category'] = exec_raw['Transaction Category'].ffill()
+            exec_raw['Transaction / Test Description'] = exec_raw['Transaction / Test Description'].ffill()
+
+            st.session_state.preprod_data = {
+                "matrix": mat_raw,
+                "execution": exec_raw,
+                "summary": xls.parse("Summary", header=None),
+                "withdrawal_summary": xls.parse("Withdrawal Summary", header=2)
+            }
         except Exception as e:
-            st.error(f"Database fetch error: {e}")
+            st.error(f"Error loading Pre-Production Excel file. Make sure `CRM_Pre-Prod_Withdrawal_Visa_Mastercard_JCB_Completion_Report.xlsx` is uploaded to your project directory. Error: {e}")
+            st.session_state.preprod_data = {}
 
-    preprod_tabs = st.tabs(["📊 Summary & Export", "💳 Withdrawal Card Matrix", "✏️ Update Test Execution"])
+    if st.session_state.preprod_data:
+        preprod_tabs = st.tabs(["📊 Summary Dashboard", "💳 Withdrawal Card Matrix", "📋 All Transactions Execution Report", "✏️ Update Test Execution"])
 
-    # --- TAB 1: SUMMARY & EXPORT ---
-    with preprod_tabs[0]:
-        st.markdown("### 🎯 Pre-Production Execution Summary")
-        
-        if not preprod_df.empty:
-            total_cases = len(preprod_df)
-            passed_cases = len(preprod_df[preprod_df['overall_status'].str.upper() == 'PASS'])
-            failed_cases = len(preprod_df[preprod_df['overall_status'].str.upper() == 'FAIL'])
-            blocked_cases = len(preprod_df[preprod_df['overall_status'].str.upper() == 'BLOCKED'])
-            pending_cases = len(preprod_df[preprod_df['overall_status'].str.upper() == 'NOT EXECUTED'])
+        mat_df = st.session_state.preprod_data["matrix"]
+        exec_df = st.session_state.preprod_data["execution"]
+
+        # --- TAB 1: SUMMARY DASHBOARD ---
+        with preprod_tabs[0]:
+            st.markdown("### 🎯 Pre-Production UAT Execution Summary")
+            
+            # Calculate live metrics from matrices
+            total_cases = len(mat_df) + len(exec_df)
+            combined_all = pd.concat([mat_df[['Overall Status']], exec_df[['Overall Status']]], ignore_index=True)
+            combined_all['Overall Status'] = combined_all['Overall Status'].fillna('NOT EXECUTED').str.upper().str.strip()
+
+            passed = len(combined_all[combined_all['Overall Status'] == 'PASS'])
+            failed = len(combined_all[combined_all['Overall Status'] == 'FAIL'])
+            blocked = len(combined_all[combined_all['Overall Status'] == 'BLOCKED'])
+            not_executed = len(combined_all[combined_all['Overall Status'].isin(['NOT EXECUTED', ''])])
 
             m1, m2, m3, m4, m5 = st.columns(5)
-            m1.markdown(f'<div class="metric-card"><div class="metric-num">{total_cases}</div><div class="metric-label">Total Cases</div></div>', unsafe_allow_html=True)
-            m2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{passed_cases}</div><div class="metric-label">Passed</div></div>', unsafe_allow_html=True)
-            m3.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #dc2626;">{failed_cases}</div><div class="metric-label">Failed</div></div>', unsafe_allow_html=True)
-            m4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{blocked_cases}</div><div class="metric-label">Blocked</div></div>', unsafe_allow_html=True)
-            m5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{pending_cases}</div><div class="metric-label">Not Executed</div></div>', unsafe_allow_html=True)
+            m1.markdown(f'<div class="metric-card"><div class="metric-num">{total_cases}</div><div class="metric-label">Total Test Cases</div></div>', unsafe_allow_html=True)
+            m2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{passed}</div><div class="metric-label">Passed</div></div>', unsafe_allow_html=True)
+            m3.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #dc2626;">{failed}</div><div class="metric-label">Failed</div></div>', unsafe_allow_html=True)
+            m4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{blocked}</div><div class="metric-label">Blocked</div></div>', unsafe_allow_html=True)
+            m5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{not_executed}</div><div class="metric-label">Not Executed</div></div>', unsafe_allow_html=True)
 
             st.write("")
-            st.dataframe(preprod_df, use_container_width=True, hide_index=True)
+            st.markdown("##### 💳 Withdrawal Card Scheme Summary")
+            if "Withdrawal Summary" in st.session_state.preprod_data:
+                st.dataframe(st.session_state.preprod_data["withdrawal_summary"], use_container_width=True, hide_index=True)
 
-            # Excel Export
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                preprod_df.to_excel(writer, sheet_name="PreProd_Execution_Report", index=False)
-            output.seek(0)
+            st.divider()
+
+            # Master Download Button
+            def generate_master_preprod_report():
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    st.session_state.preprod_data["matrix"].to_excel(writer, sheet_name="Withdrawal - Card Matrix", index=False)
+                    st.session_state.preprod_data["execution"].to_excel(writer, sheet_name="Execution Report", index=False)
+                    st.session_state.preprod_data["withdrawal_summary"].to_excel(writer, sheet_name="Withdrawal Summary", index=False)
+                output.seek(0)
+                return output
 
             st.download_button(
-                label="📥 Download Pre-Production Master Report (.xlsx)",
-                data=output.getvalue(),
-                file_name=f"PeoplesBank_CRM_PreProd_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                label="📥 Download Complete Updated Pre-Production Workbook (.xlsx)",
+                data=generate_master_preprod_report().getvalue(),
+                file_name=f"PeoplesBank_CRM_PreProd_Completion_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-        else:
-            st.info("No pre-production records found in Supabase database yet. Use the update tab or seed your table.")
 
-    # --- TAB 2: WITHDRAWAL CARD MATRIX ---
-    with preprod_tabs[1]:
-        st.markdown("### 💳 Pre-Prod Withdrawal Card Matrix")
-        if not preprod_df.empty:
-            schemes = list(preprod_df['card_scheme'].dropna().unique()) if 'card_scheme' in preprod_df.columns else []
-            sel_scheme = st.selectbox("Filter by Card Scheme", ["All"] + schemes, key="pre_scheme_sel")
+        # --- TAB 2: WITHDRAWAL CARD MATRIX ---
+        with preprod_tabs[1]:
+            st.markdown("### 💳 Pre-Prod Withdrawal Card Matrix (Visa / Mastercard / JCB)")
+            schemes = list(mat_df['Card Scheme'].dropna().unique()) if 'Card Scheme' in mat_df.columns else []
+            sel_scheme = st.selectbox("Filter by Card Scheme", ["All"] + schemes, key="pre_mat_scheme")
             
-            filtered_mat = preprod_df if sel_scheme == "All" else preprod_df[preprod_df['card_scheme'] == sel_scheme]
+            filtered_mat = mat_df if sel_scheme == "All" else mat_df[mat_df['Card Scheme'] == sel_scheme]
             st.dataframe(filtered_mat, use_container_width=True, hide_index=True)
-        else:
-            st.info("No records available to display in matrix.")
 
-    # --- TAB 3: UPDATE TEST EXECUTION ---
-    with preprod_tabs[2]:
-        st.markdown("### ✏️ Record or Update Pre-Production Test Case")
-        
-        if can_execute:
-            with st.form("preprod_update_form"):
-                tc_id_input = st.text_input("Test Case ID (e.g. WD-001)", value="WD-001")
-                card_scheme_input = st.selectbox("Card Scheme", ["Visa", "Mastercard", "JCB", "Other"])
-                card_type_input = st.selectbox("Card Type", ["Debit", "Credit", "Cardless"])
-                issuing_bank_input = st.text_input("Issuing Bank", value="People's Bank")
-                account_type_input = st.text_input("Account Type", value="CHK")
-                withdrawal_amt = st.number_input("Withdrawal Amount (LKR)", value=1000.00, format="%.2f")
+        # --- TAB 3: EXECUTION REPORT (ALL TRANSACTIONS) ---
+        with preprod_tabs[2]:
+            st.markdown("### 📋 Pre-Prod All Transactions Execution Report")
+            categories = list(exec_df['Transaction Category'].dropna().unique()) if 'Transaction Category' in exec_df.columns else []
+            sel_cat = st.selectbox("Filter by Category", ["All"] + categories, key="pre_exec_cat")
+            
+            filtered_exec = exec_df if sel_cat == "All" else exec_df[exec_df['Transaction Category'] == sel_cat]
+            st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
+
+        # --- TAB 4: UPDATE TEST EXECUTION ---
+        with preprod_tabs[3]:
+            st.markdown("### ✏️ Update Test Execution & Sync Report")
+            
+            if can_execute:
+                target_sheet = st.radio("Select Target Report Sheet", ["Withdrawal - Card Matrix", "Execution Report (All Txns)"], horizontal=True)
                 
-                c_u1, c_u2 = st.columns(2)
-                with c_u1:
-                    overall_stat = st.selectbox("Overall Status", ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"])
-                    fe_stat = st.text_input("FE Status", value="SUCCESS")
-                    sibs_stat = st.text_input("SIBS / CBS Status", value="UPDATED (SIBS)")
-                with c_u2:
-                    rrn_val = st.text_input("RRN", value="")
-                    stan_val = st.text_input("STAN / UTANO", value="")
-                    tester_name = st.text_input("Tester Name", value=st.session_state.get("logged_user", "TESTER"))
+                if target_sheet == "Withdrawal - Card Matrix":
+                    target_df = mat_df
+                    id_col = 'TC ID'
+                else:
+                    target_df = exec_df
+                    id_col = 'TC ID'
 
-                remarks_input = st.text_area("Remarks", value="")
+                available_ids = target_df[id_col].dropna().unique().tolist()
+                selected_tc_id = st.selectbox("Select Test Case ID to Modify", available_ids, key="pre_upd_tc")
 
-                if st.form_submit_button("💾 Save / Update Pre-Prod Record", type="primary"):
-                    conn_upd = get_db_connection()
-                    if conn_upd:
-                        try:
-                            cur_u = conn_upd.cursor()
-                            cur_u.execute("""
-                                INSERT INTO preprod_test_executions 
-                                (tc_id, card_scheme, card_type, issuing_bank, account_type, withdrawal_amount, rrn, stan_utano, fe_status, sibs_status, overall_status, execution_date, tester, remarks)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s)
-                                ON CONFLICT (tc_id) 
-                                DO UPDATE SET 
-                                    card_scheme = EXCLUDED.card_scheme,
-                                    card_type = EXCLUDED.card_type,
-                                    issuing_bank = EXCLUDED.issuing_bank,
-                                    account_type = EXCLUDED.account_type,
-                                    withdrawal_amount = EXCLUDED.withdrawal_amount,
-                                    rrn = EXCLUDED.rrn,
-                                    stan_utano = EXCLUDED.stan_utano,
-                                    fe_status = EXCLUDED.fe_status,
-                                    sibs_status = EXCLUDED.sibs_status,
-                                    overall_status = EXCLUDED.overall_status,
-                                    execution_date = CURRENT_TIMESTAMP,
-                                    tester = EXCLUDED.tester,
-                                    remarks = EXCLUDED.remarks,
-                                    updated_at = CURRENT_TIMESTAMP;
-                            """, (tc_id_input, card_scheme_input, card_type_input, issuing_bank_input, account_type_input, withdrawal_amt, rrn_val, stan_val, fe_stat, sibs_stat, overall_stat, tester_name, remarks_input))
-                            conn_upd.commit()
-                            cur_u.close()
-                            conn_upd.close()
-                            st.success(f"Successfully saved test case **{tc_id_input}** to Supabase!")
+                if selected_tc_id:
+                    row_idx = target_df[target_df[id_col] == selected_tc_id].index[0]
+                    row_data = target_df.loc[row_idx]
+
+                    with st.form(key=f"form_pre_{selected_tc_id}"):
+                        col_u1, col_u2 = st.columns(2)
+                        with col_u1:
+                            stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                            curr_status = str(row_data.get('Overall Status', 'NOT EXECUTED')).upper().strip()
+                            if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                            
+                            new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
+                            fe_val = st.text_input("FE Status", value=str(row_data.get('FE Status', '') if pd.notna(row_data.get('FE Status')) else ""))
+                            sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('SIBS / CBS Status', '') if pd.notna(row_data.get('SIBS / CBS Status')) else ""))
+                        with col_u2:
+                            rrn_val = st.text_input("RRN", value=str(row_data.get('RRN', '') if pd.notna(row_data.get('RRN')) else ""))
+                            stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('STAN / UTANO', '') if pd.notna(row_data.get('STAN / UTANO')) else ""))
+                            tester_val = st.text_input("Tester Name", value=str(row_data.get('Tester', st.session_state.get('logged_user', '')) if pd.notna(row_data.get('Tester')) else ""))
+
+                        remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('Remarks', '') if pd.notna(row_data.get('Remarks')) else ""))
+
+                        if st.form_submit_button("💾 Save Execution Update", type="primary"):
+                            target_df.loc[row_idx, 'Overall Status'] = new_status
+                            target_df.loc[row_idx, 'FE Status'] = fe_val
+                            target_df.loc[row_idx, 'SIBS / CBS Status'] = sibs_val
+                            target_df.loc[row_idx, 'RRN'] = rrn_val
+                            target_df.loc[row_idx, 'STAN / UTANO'] = stan_val
+                            target_df.loc[row_idx, 'Tester'] = tester_val
+                            target_df.loc[row_idx, 'Remarks'] = remarks_val
+
+                            if target_sheet == "Withdrawal - Card Matrix":
+                                st.session_state.preprod_data["matrix"] = target_df
+                            else:
+                                st.session_state.preprod_data["execution"] = target_df
+
+                            st.success(f"Successfully updated test case **{selected_tc_id}** in memory and ready for export!")
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to save record: {e}")
-        else:
-            st.info("Switch to an Admin or Tester role to update pre-production test records.")
+            else:
+                st.info("Switch to an Admin or Tester role to update pre-production test records.")
 
 
 
