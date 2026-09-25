@@ -2092,16 +2092,22 @@ elif menu == "🚀 Pre-Production Testing":
         " are restricted."
     )
 
-  # Fetch data directly from Supabase
-  engine = get_sqlalchemy_engine()  # using your app's SQLAlchemy engine function
-  try:
-    mat_df = pd.read_sql("SELECT * FROM preprod_withdrawal_matrix", con=engine)
-    exec_df = pd.read_sql("SELECT * FROM preprod_all_transactions", con=engine)
-  except Exception as e:
-    st.error(
-        f"Database connection error. Please run the migration script first: {e}"
-    )
-    mat_df, exec_df = pd.DataFrame(), pd.DataFrame()
+  # Fetch data directly from Supabase using your app's standard connection function
+  mat_df, exec_df = pd.DataFrame(), pd.DataFrame()
+  conn_db = get_db_connection()
+  if conn_db:
+    try:
+      mat_df = pd.read_sql(
+          "SELECT * FROM preprod_withdrawal_matrix", con=conn_db
+      )
+      exec_df = pd.read_sql(
+          "SELECT * FROM preprod_all_transactions", con=conn_db
+      )
+      conn_db.close()
+    except Exception as e:
+      st.error(
+          f"Database fetch error (Make sure migration script was run): {e}"
+      )
 
   if not mat_df.empty or not exec_df.empty:
     preprod_tabs = st.tabs([
@@ -2173,7 +2179,6 @@ elif menu == "🚀 Pre-Production Testing":
 
       st.divider()
 
-      # Excel Export directly from database tables
       def generate_db_preprod_report():
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -2248,11 +2253,9 @@ elif menu == "🚀 Pre-Production Testing":
 
         if target_table == "Withdrawal Card Matrix":
           table_name = "preprod_withdrawal_matrix"
-          id_col = "tc_id"
           available_ids = mat_df["tc_id"].dropna().unique().tolist()
         else:
           table_name = "preprod_all_transactions"
-          id_col = "tc_id"
           available_ids = exec_df["tc_id"].dropna().unique().tolist()
 
         selected_tc_id = st.selectbox(
@@ -2260,12 +2263,17 @@ elif menu == "🚀 Pre-Production Testing":
         )
 
         if selected_tc_id:
-          # Fetch exact record
-          sub_df = pd.read_sql(
-              f"SELECT * FROM {table_name} WHERE tc_id = %(tc)s",
-              con=engine,
-              params={"tc": selected_tc_id},
-          )
+          # Fetch exact record using standard connection
+          conn_sub = get_db_connection()
+          sub_df = pd.DataFrame()
+          if conn_sub:
+            sub_df = pd.read_sql(
+                f"SELECT * FROM {table_name} WHERE tc_id = %s",
+                con=conn_sub,
+                params=(selected_tc_id,),
+            )
+            conn_sub.close()
+
           if not sub_df.empty:
             row_data = sub_df.iloc[0]
 
@@ -2318,48 +2326,37 @@ elif menu == "🚀 Pre-Production Testing":
               if st.form_submit_button(
                   "💾 Save Update to Supabase", type="primary"
               ):
-                with engine.begin() as conn:
-                  if table_name == "preprod_withdrawal_matrix":
-                    conn.execute(
-                        text("""
-                                            UPDATE preprod_withdrawal_matrix 
-                                            SET overall_status = :st, fe_status = :fe, sibs_status = :sibs, rrn = :rrn, stan_utano = :stan, tester = :tester, remarks = :rem 
-                                            WHERE tc_id = :tc
-                                        """),
-                        {
-                            "st": new_status,
-                            "fe": fe_val,
-                            "sibs": sibs_val,
-                            "rrn": rrn_val,
-                            "stan": stan_val,
-                            "tester": tester_val,
-                            "rem": remarks_val,
-                            "tc": selected_tc_id,
-                        },
+                conn_upd = get_db_connection()
+                if conn_upd:
+                  try:
+                    cur = conn_upd.cursor()
+                    cur.execute(
+                        f"""
+                                        UPDATE {table_name} 
+                                        SET overall_status = %s, fe_status = %s, sibs_status = %s, rrn = %s, stan_utano = %s, tester = %s, remarks = %s 
+                                        WHERE tc_id = %s
+                                    """,
+                        (
+                            new_status,
+                            fe_val,
+                            sibs_val,
+                            rrn_val,
+                            stan_val,
+                            tester_val,
+                            remarks_val,
+                            selected_tc_id,
+                        ),
                     )
-                  else:
-                    conn.execute(
-                        text("""
-                                            UPDATE preprod_all_transactions 
-                                            SET overall_status = :st, fe_status = :fe, sibs_status = :sibs, rrn = :rrn, stan_utano = :stan, tester = :tester, remarks = :rem 
-                                            WHERE tc_id = :tc
-                                        """),
-                        {
-                            "st": new_status,
-                            "fe": fe_val,
-                            "sibs": sibs_val,
-                            "rrn": rrn_val,
-                            "stan": stan_val,
-                            "tester": tester_val,
-                            "rem": remarks_val,
-                            "tc": selected_tc_id,
-                        },
+                    conn_upd.commit()
+                    cur.close()
+                    conn_upd.close()
+                    st.success(
+                        f"Successfully updated test case **{selected_tc_id}**"
+                        " in Supabase!"
                     )
-                st.success(
-                    f"Successfully updated test case **{selected_tc_id}** in"
-                    " Supabase!"
-                )
-                st.rerun()
+                    st.rerun()
+                  except Exception as e:
+                    st.error(f"Update failed: {e}")
       else:
         st.info(
             "Switch to an Admin or Tester role to update pre-production test"
@@ -2367,8 +2364,8 @@ elif menu == "🚀 Pre-Production Testing":
         )
   else:
     st.info(
-        "No records found in Supabase pre-production tables. Run the migration"
-        " script to import your Excel data into Supabase."
+        "No records found in Supabase pre-production tables. Please run your"
+        " `migrate_to_supabase.py` script first."
     )
 
 
