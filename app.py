@@ -1637,9 +1637,9 @@ else:
 
     current_role = st.session_state.authenticated_role
     if current_role == "Admin / Manager":
-        menu = st.sidebar.radio("Navigation", ["📊 Live Dashboard", "🧪 Test Execution & Export", "💰 Finance Testing & Review", "🧪 Test Execution & Scenarios", "🛠️ Defect Tracker", "⚙️ Admin Management", "📄 Reports"])
+        menu = st.sidebar.radio("Navigation", ["📊 Live Dashboard", "🚀 Pre-Production Testing", "🧪 Test Execution & Export", "💰 Finance Testing & Review", "🧪 Test Execution & Scenarios", "🛠️ Defect Tracker", "⚙️ Admin Management", "📄 Reports"])
     elif current_role == "Tester":
-        menu = st.sidebar.radio("Navigation", ["📊 Live Dashboard", "🧪 Test Execution & Export", "💰 Finance Testing & Review", "🧪 Test Execution & Scenarios", "🛠️ Defect Tracker", "📄 Reports"])
+        menu = st.sidebar.radio("Navigation", ["📊 Live Dashboard", "🚀 Pre-Production Testing", "🧪 Test Execution & Export", "💰 Finance Testing & Review", "🧪 Test Execution & Scenarios", "🛠️ Defect Tracker", "📄 Reports"])
     elif current_role == "Developer":
         menu = st.sidebar.radio("Navigation", ["🛠️ Defect Tracker", "📊 Live Dashboard", "📄 Reports"])
     else:
@@ -2071,6 +2071,236 @@ elif menu == "🧪 Test Execution & Scenarios":
                 st.markdown('</div>', unsafe_allow_html=True)
 
 
+
+
+# ---------------------------------------------------------
+# 🚀 PRE-PRODUCTION TESTING & EXECUTION REPORT
+# ---------------------------------------------------------
+elif menu == "🚀 Pre-Production Testing":
+  st.subheader(
+      "🚀 Pre-Production Testing & Multi-Sheet Report Management"
+  )
+  st.markdown(
+      "Manage pre-production verification for Visa, Mastercard, JCB withdrawals"
+      " and general transactions, complete with official Hitachi format"
+      " export."
+  )
+
+  can_execute_preprod = st.session_state.authenticated_role in [
+      "Admin / Manager",
+      "Tester",
+  ]
+  if not can_execute_preprod:
+    st.warning(
+        "⚠️ You are in Viewer mode. Execution updates are restricted to"
+        " **Testers** and **Admin / Managers**."
+    )
+
+  # Initialize or load Pre-Prod Dataset from session or default uploaded file
+  if "preprod_dfs" not in st.session_state:
+    try:
+      # Load all sheets from the provided pre-production excel file
+      preprod_xls = pd.ExcelFile(
+          "CRM_Pre-Prod_Withdrawal_Visa_Mastercard_JCB_Completion_Report.xlsx"
+      )
+      st.session_state.preprod_dfs = {
+          sheet: preprod_xls.parse(sheet) for sheet in preprod_xls.sheet_names
+      }
+    except Exception as e:
+      st.error(f"Error loading Pre-Production template file: {e}")
+      st.session_state.preprod_dfs = {}
+
+  preprod_tabs = st.tabs([
+      "📊 Summary Dashboard",
+      "💳 Withdrawal - Card Matrix",
+      "📋 Execution Report (All Txns)",
+  ])
+
+  # ---------------------------------------------------------
+  # TAB 1: SUMMARY DASHBOARD
+  # ---------------------------------------------------------
+  with preprod_tabs[0]:
+    st.markdown("### 🎯 Pre-Production Execution Summary")
+
+    if "Summary" in st.session_state.preprod_dfs:
+      summary_df = st.session_state.preprod_dfs["Summary"]
+      st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    if "Withdrawal Summary" in st.session_state.preprod_dfs:
+      st.markdown("##### 💳 Withdrawal Card Scheme Breakdown")
+      w_summary_df = st.session_state.preprod_dfs["Withdrawal Summary"]
+      st.dataframe(w_summary_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # Export pre-prod workbook button
+    def generate_preprod_workbook():
+      output = io.BytesIO()
+      with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for s_name, s_df in st.session_state.preprod_dfs.items():
+          s_df.to_excel(writer, sheet_name=s_name, index=False)
+      output.seek(0)
+      return output
+
+    st.download_button(
+        label=(
+            "📥 Download Complete Pre-Production Workbook (.xlsx) [Official"
+            " Hitachi Format]"
+        ),
+        data=generate_preprod_workbook().getvalue(),
+        file_name=f"PeoplesBank_CRM_PreProd_Completion_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+  # ---------------------------------------------------------
+  # TAB 2: WITHDRAWAL - CARD MATRIX
+  # ---------------------------------------------------------
+  with preprod_tabs[1]:
+    st.markdown("### 💳 Pre-Prod Withdrawal Card Matrix (Visa / MC / JCB)")
+
+    if "Withdrawal - Card Matrix" in st.session_state.preprod_dfs:
+      matrix_raw = st.session_state.preprod_dfs["Withdrawal - Card Matrix"]
+
+      # Extract metadata rows and tabular header
+      header_row_idx = 7  # Based on template structure
+      meta_df = matrix_raw.iloc[:header_row_idx, :]
+      mat_df = matrix_raw.iloc[header_row_idx:].copy()
+      mat_df.columns = mat_df.iloc[0]
+      mat_df = mat_df.drop(mat_df.index[0]).reset_index(drop=True)
+
+      # Clean up empty rows
+      mat_df = mat_df.dropna(subset=["TC ID"])
+
+      # Filters
+      schemes = (
+          list(mat_df["Card Scheme"].dropna().unique())
+          if "Card Scheme" in mat_df.columns
+          else []
+      )
+      sel_scheme = st.selectbox(
+          "Filter by Card Scheme", ["All"] + schemes, key="pre_scheme_sel"
+      )
+
+      filtered_mat = (
+          mat_df
+          if sel_scheme == "All"
+          else mat_df[mat_df["Card Scheme"] == sel_scheme]
+      )
+
+      st.dataframe(filtered_mat, use_container_width=True, hide_index=True)
+
+      st.markdown("#### ✏️ Update Withdrawal Test Execution")
+      selected_tc = st.selectbox(
+          "Select Test Case ID to Update",
+          filtered_mat["TC ID"].tolist(),
+          key="pre_tc_sel",
+      )
+
+      if selected_tc:
+        row_idx_in_mat = mat_df[mat_df["TC ID"] == selected_tc].index[0]
+        curr_row = mat_df.loc[row_idx_in_mat]
+
+        with st.form(key=f"preprod_mat_form_{selected_tc}"):
+          col1, col2, col3 = st.columns(3)
+          with col1:
+            new_stat = st.selectbox(
+                "Overall Status",
+                ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"],
+                index=(
+                    ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"].index(
+                        curr_row.get("Overall Status", "NOT EXECUTED")
+                    )
+                    if curr_row.get("Overall Status", "NOT EXECUTED")
+                    in ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                    else 0
+                ),
+            )
+            fe_stat = st.text_input(
+                "FE Status", value=str(curr_row.get("FE Status", ""))
+            )
+          with col2:
+            sibs_stat = st.text_input(
+                "SIBS / CBS Status",
+                value=str(curr_row.get("SIBS / CBS Status", "")),
+            )
+            rrn_val = st.text_input(
+                "RRN", value=str(curr_row.get("RRN", ""))
+            )
+          with col3:
+            stan_val = st.text_input(
+                "STAN / UTANO", value=str(curr_row.get("STAN / UTANO", ""))
+            )
+            tester_val = st.text_input(
+                "Tester",
+                value=str(
+                    curr_row.get("Tester", st.session_state.get("username", ""))
+                ),
+            )
+
+          remarks_val = st.text_area(
+              "Remarks", value=str(curr_row.get("Remarks", ""))
+          )
+
+          submit_mat = st.form_submit_button(
+              "💾 Save Changes to Withdrawal Matrix",
+              use_container_width=True,
+              disabled=not can_execute_preprod,
+          )
+
+          if submit_mat:
+            mat_df.loc[row_idx_in_mat, "Overall Status"] = new_stat
+            mat_df.loc[row_idx_in_mat, "FE Status"] = fe_stat
+            mat_df.loc[row_idx_in_mat, "SIBS / CBS Status"] = sibs_stat
+            mat_df.loc[row_idx_in_mat, "RRN"] = rrn_val
+            mat_df.loc[row_idx_in_mat, "STAN / UTANO"] = stan_val
+            mat_df.loc[row_idx_in_mat, "Tester"] = tester_val
+            mat_df.loc[row_idx_in_mat, "Remarks"] = remarks_val
+
+            # Reconstruct full sheet including header metadata
+            updated_full = pd.concat(
+                [meta_df, pd.DataFrame([mat_df.columns], columns=mat_df.columns), mat_df],
+                ignore_index=True,
+            )
+            st.session_state.preprod_dfs["Withdrawal - Card Matrix"] = (
+                updated_full
+            )
+            st.success(f"Successfully updated test case {selected_tc}!")
+            st.rerun()
+
+  # ---------------------------------------------------------
+  # TAB 3: EXECUTION REPORT (ALL TRANSACTIONS)
+  # ---------------------------------------------------------
+  with preprod_tabs[2]:
+    st.markdown("### 📋 Pre-Prod All Transactions Execution Report")
+
+    if "Execution Report" in st.session_state.preprod_dfs:
+      exec_raw = st.session_state.preprod_dfs["Execution Report"]
+
+      meta_exec = exec_raw.iloc[:6, :]
+      exec_df = exec_raw.iloc[6:].copy()
+      exec_df.columns = exec_df.iloc[0]
+      exec_df = exec_df.drop(exec_df.index[0]).reset_index(drop=True)
+      exec_df = exec_df.dropna(subset=["TC ID"])
+
+      categories_list = (
+          list(exec_df["Transaction Category"].dropna().unique())
+          if "Transaction Category" in exec_df.columns
+          else []
+      )
+      sel_cat = st.selectbox(
+          "Filter by Transaction Category",
+          ["All"] + categories_list,
+          key="pre_cat_sel",
+      )
+
+      filtered_exec = (
+          exec_df
+          if sel_cat == "All"
+          else exec_df[exec_df["Transaction Category"] == sel_cat]
+      )
+
+      st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
 
 
 
