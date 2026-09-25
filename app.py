@@ -2240,133 +2240,204 @@ elif menu == "🚀 Pre-Production Testing":
       )
       st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
 
-    # --- TAB 4: UPDATE TEST EXECUTION ---
-    with preprod_tabs[3]:
-      st.markdown("### ✏️ Update Test Execution & Sync to Supabase")
+    # ---------------------------------------------------------
+# 🚀 PRE-PRODUCTION TESTING & DATABASE PORTAL
+# ---------------------------------------------------------
+elif menu == "🚀 Pre-Production Testing":
+    st.subheader("🚀 Pre-Production Testing & Database Tracker (Supabase Powered)")
+    st.markdown("Manage pre-production verification for Visa, Mastercard, JCB withdrawals and general CRM transactions directly from Supabase tables.")
 
-      if can_execute:
-        target_table = st.radio(
-            "Select Target Table",
-            ["Withdrawal Card Matrix", "All Transactions Execution Report"],
-            horizontal=True,
-        )
+    can_execute = current_role in ["Admin / Manager", "Tester"]
+    if not can_execute:
+        st.warning("⚠️ Your current role has **Viewer** privileges. Execution updates are restricted.")
 
-        if target_table == "Withdrawal Card Matrix":
-          table_name = "preprod_withdrawal_matrix"
-          available_ids = mat_df["tc_id"].dropna().unique().tolist()
-        else:
-          table_name = "preprod_all_transactions"
-          available_ids = exec_df["tc_id"].dropna().unique().tolist()
+    # Fetch data directly from Supabase using your app's standard connection function
+    mat_df, exec_df = pd.DataFrame(), pd.DataFrame()
+    conn_db = get_db_connection()
+    if conn_db:
+        try:
+            mat_df = pd.read_sql("SELECT * FROM preprod_withdrawal_matrix", con=conn_db)
+            exec_df = pd.read_sql("SELECT * FROM preprod_all_transactions", con=conn_db)
+            conn_db.close()
+        except Exception as e:
+            st.error(f"Database fetch error (Make sure migration script was run): {e}")
 
-        selected_tc_id = st.selectbox(
-            "Select Test Case ID to Modify", available_ids, key="db_pre_upd_tc"
-        )
+    if not mat_df.empty or not exec_df.empty:
+        preprod_tabs = st.tabs(["📊 Summary Dashboard", "💳 Withdrawal Card Matrix", "📋 All Transactions Execution Report", "✏️ Update Test Execution"])
 
-        if selected_tc_id:
-          # Fetch exact record using standard connection
-          conn_sub = get_db_connection()
-          sub_df = pd.DataFrame()
-          if conn_sub:
-            sub_df = pd.read_sql(
-                f"SELECT * FROM {table_name} WHERE tc_id = %s",
-                con=conn_sub,
-                params=(selected_tc_id,),
+        # --- TAB 1: SUMMARY DASHBOARD ---
+        with preprod_tabs[0]:
+            st.markdown("### 🎯 Pre-Production UAT Execution Summary")
+            
+            total_cases = len(mat_df) + len(exec_df)
+            combined_all = pd.concat([
+                mat_df[['overall_status']] if not mat_df.empty else pd.DataFrame(),
+                exec_df[['overall_status']] if not exec_df.empty else pd.DataFrame()
+            ], ignore_index=True)
+            combined_all['overall_status'] = combined_all['overall_status'].fillna('NOT EXECUTED').str.upper().str.strip()
+
+            passed = len(combined_all[combined_all['overall_status'] == 'PASS'])
+            failed = len(combined_all[combined_all['overall_status'] == 'FAIL'])
+            blocked = len(combined_all[combined_all['overall_status'] == 'BLOCKED'])
+            not_executed = len(combined_all[combined_all['overall_status'].isin(['NOT EXECUTED', ''])])
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.markdown(f'<div class="metric-card"><div class="metric-num">{total_cases}</div><div class="metric-label">Total Test Cases</div></div>', unsafe_allow_html=True)
+            m2.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #16a34a;">{passed}</div><div class="metric-label">Passed</div></div>', unsafe_allow_html=True)
+            m3.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #dc2626;">{failed}</div><div class="metric-label">Failed</div></div>', unsafe_allow_html=True)
+            m4.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #d97706;">{blocked}</div><div class="metric-label">Blocked</div></div>', unsafe_allow_html=True)
+            m5.markdown(f'<div class="metric-card"><div class="metric-num" style="color: #64748b;">{not_executed}</div><div class="metric-label">Not Executed</div></div>', unsafe_allow_html=True)
+
+            st.divider()
+
+            def generate_db_preprod_report():
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    mat_df.to_excel(writer, sheet_name="Withdrawal - Card Matrix", index=False)
+                    exec_df.to_excel(writer, sheet_name="Execution Report", index=False)
+                output.seek(0)
+                return output
+
+            st.download_button(
+                label="📥 Download Complete Pre-Production Workbook from Supabase (.xlsx)",
+                data=generate_db_preprod_report().getvalue(),
+                file_name=f"PeoplesBank_CRM_Supabase_PreProd_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
-            conn_sub.close()
 
-          if not sub_df.empty:
-            row_data = sub_df.iloc[0]
+        # --- TAB 2: WITHDRAWAL CARD MATRIX ---
+        with preprod_tabs[1]:
+            st.markdown("### 💳 Pre-Prod Withdrawal Card Matrix")
+            schemes = list(mat_df['card_scheme'].dropna().unique()) if 'card_scheme' in mat_df.columns else []
+            sel_scheme = st.selectbox("Filter by Card Scheme", ["All"] + schemes, key="db_pre_mat_scheme")
+            
+            filtered_mat = mat_df if sel_scheme == "All" else mat_df[mat_df['card_scheme'] == sel_scheme]
+            st.dataframe(filtered_mat, use_container_width=True, hide_index=True)
 
-            with st.form(key=f"form_db_pre_{selected_tc_id}"):
-              col_u1, col_u2 = st.columns(2)
-              with col_u1:
-                stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                curr_status = (
-                    str(row_data.get("overall_status", "NOT EXECUTED"))
-                    .upper()
-                    .strip()
-                )
-                if curr_status not in stat_options:
-                  curr_status = "NOT EXECUTED"
+        # --- TAB 3: EXECUTION REPORT (ALL TRANSACTIONS) ---
+        with preprod_tabs[2]:
+            st.markdown("### 📋 Pre-Prod All Transactions Execution Report")
+            categories = list(exec_df['transaction_category'].dropna().unique()) if 'transaction_category' in exec_df.columns else []
+            sel_cat = st.selectbox("Filter by Category", ["All"] + categories, key="db_pre_exec_cat")
+            
+            filtered_exec = exec_df if sel_cat == "All" else exec_df[exec_df['transaction_category'] == sel_cat]
+            st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
 
-                new_status = st.selectbox(
-                    "Overall Status",
-                    stat_options,
-                    index=stat_options.index(curr_status),
-                )
-                fe_val = st.text_input(
-                    "FE Status", value=str(row_data.get("fe_status", ""))
-                )
-                sibs_val = st.text_input(
-                    "SIBS / CBS Status",
-                    value=str(row_data.get("sibs_status", "")),
-                )
-              with col_u2:
-                rrn_val = st.text_input(
-                    "RRN", value=str(row_data.get("rrn", ""))
-                )
-                stan_val = st.text_input(
-                    "STAN / UTANO",
-                    value=str(row_data.get("stan_utano", "")),
-                )
-                tester_val = st.text_input(
-                    "Tester Name",
-                    value=str(
-                        row_data.get(
-                            "tester", st.session_state.get("logged_user", "")
-                        )
-                    ),
-                )
+        # --- TAB 4: UPDATE TEST EXECUTION ---
+        with preprod_tabs[3]:
+            st.markdown("### ✏️ Update Test Execution & Sync to Supabase")
+            
+            if can_execute:
+                target_table = st.radio("Select Target Table", ["Withdrawal Card Matrix", "All Transactions Execution Report"], horizontal=True)
+                
+                if target_table == "Withdrawal Card Matrix":
+                    table_name = "preprod_withdrawal_matrix"
+                    available_ids = mat_df['tc_id'].dropna().unique().tolist()
+                else:
+                    table_name = "preprod_all_transactions"
+                    available_ids = exec_df['tc_id'].dropna().unique().tolist()
 
-              remarks_val = st.text_area(
-                  "Remarks / Failure Notes",
-                  value=str(row_data.get("remarks", "")),
-              )
+                selected_tc_id = st.selectbox("Select Test Case ID to Modify", available_ids, key="db_pre_upd_tc")
 
-              if st.form_submit_button(
-                  "💾 Save Update to Supabase", type="primary"
-              ):
-                conn_upd = get_db_connection()
-                if conn_upd:
-                  try:
-                    cur = conn_upd.cursor()
-                    cur.execute(
-                        f"""
-                                        UPDATE {table_name} 
-                                        SET overall_status = %s, fe_status = %s, sibs_status = %s, rrn = %s, stan_utano = %s, tester = %s, remarks = %s 
-                                        WHERE tc_id = %s
-                                    """,
-                        (
-                            new_status,
-                            fe_val,
-                            sibs_val,
-                            rrn_val,
-                            stan_val,
-                            tester_val,
-                            remarks_val,
-                            selected_tc_id,
-                        ),
-                    )
-                    conn_upd.commit()
-                    cur.close()
-                    conn_upd.close()
-                    st.success(
-                        f"Successfully updated test case **{selected_tc_id}**"
-                        " in Supabase!"
-                    )
-                    st.rerun()
-                  except Exception as e:
-                    st.error(f"Update failed: {e}")
-      else:
-        st.info(
-            "Switch to an Admin or Tester role to update pre-production test"
-            " records."
-        )
-  else:
-    st.info(
-        "No records found in Supabase pre-production tables. Please run your"
-        " `migrate_to_supabase.py` script first."
-    )
+                if selected_tc_id:
+                    conn_sub = get_db_connection()
+                    sub_df = pd.DataFrame()
+                    if conn_sub:
+                        sub_df = pd.read_sql(f"SELECT * FROM {table_name} WHERE tc_id = %s", con=conn_sub, params=(selected_tc_id,))
+                        conn_sub.close()
+
+                    if not sub_df.empty:
+                        row_data = sub_df.iloc[0]
+
+                        with st.form(key=f"form_db_pre_{selected_tc_id}"):
+                            st.markdown(f"##### Editing Test Case: `{selected_tc_id}` ({target_table})")
+                            
+                            col_u1, col_u2 = st.columns(2)
+                            
+                            if table_name == "preprod_withdrawal_matrix":
+                                with col_u1:
+                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                    
+                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
+                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row_data.get('withdrawal_amount') or 0.0))
+                                    atm_id = st.text_input("ATM / CRM ID", value=str(row_data.get('atm_crm_id', '') or ''))
+                                    acc_ref = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''))
+                                    rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''))
+                                with col_u2:
+                                    stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''))
+                                    fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''))
+                                    sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''))
+                                    receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''))
+                                    tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''))
+
+                                remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''))
+
+                                if st.form_submit_button("💾 Save Withdrawal Update to Supabase", type="primary"):
+                                    conn_upd = get_db_connection()
+                                    if conn_upd:
+                                        try:
+                                            cur = conn_upd.cursor()
+                                            cur.execute("""
+                                                UPDATE preprod_withdrawal_matrix 
+                                                SET overall_status = %s, withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
+                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, tester = %s, remarks = %s 
+                                                WHERE tc_id = %s
+                                            """, (new_status, withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, fe_val, sibs_val, receipt_val, tester_val, remarks_val, selected_tc_id))
+                                            conn_upd.commit()
+                                            cur.close()
+                                            conn_upd.close()
+                                            st.success(f"Successfully updated withdrawal test case **{selected_tc_id}**!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Update failed: {e}")
+
+                            else: # All Transactions Execution Report
+                                with col_u1:
+                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                    
+                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
+                                    amount_val = st.number_input("Amount", value=float(row_data.get('amount') or 0.0))
+                                    acc_ref_ex = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''))
+                                    before_bal = st.number_input("Before Balance", value=float(row_data.get('before_balance') or 0.0))
+                                    after_bal = st.number_input("After Balance", value=float(row_data.get('after_balance') or 0.0))
+                                    rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''))
+                                with col_u2:
+                                    stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''))
+                                    fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''))
+                                    switch_val = st.text_input("Switch Status", value=str(row_data.get('switch_status', '') or ''))
+                                    sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''))
+                                    receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''))
+                                    tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''))
+
+                                remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''))
+
+                                if st.form_submit_button("💾 Save Transaction Update to Supabase", type="primary"):
+                                    conn_upd = get_db_connection()
+                                    if conn_upd:
+                                        try:
+                                            cur = conn_upd.cursor()
+                                            cur.execute("""
+                                                UPDATE preprod_all_transactions 
+                                                SET overall_status = %s, amount = %s, account_reference_no = %s, before_balance = %s, after_balance = %s, 
+                                                    rrn = %s, stan_utano = %s, fe_status = %s, switch_status = %s, sibs_status = %s, receipt_output = %s, tester = %s, remarks = %s 
+                                                WHERE tc_id = %s
+                                            """, (new_status, amount_val, acc_ref_ex, before_bal, after_bal, rrn_val, stan_val, fe_val, switch_val, sibs_val, receipt_val, tester_val, remarks_val, selected_tc_id))
+                                            conn_upd.commit()
+                                            cur.close()
+                                            conn_upd.close()
+                                            st.success(f"Successfully updated transaction test case **{selected_tc_id}**!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Update failed: {e}")
+            else:
+                st.info("Switch to an Admin or Tester role to update pre-production test records.")
+    else:
+        st.info("No records found in Supabase pre-production tables. Please run your `migrate_to_supabase.py` script first.")
 
 
 # ---------------------------------------------------------
