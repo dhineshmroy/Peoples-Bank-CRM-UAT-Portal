@@ -2163,19 +2163,21 @@ elif menu == "🚀 Pre-Production Testing":
             filtered_exec = exec_df if sel_cat == "All" else exec_df[exec_df['transaction_category'] == sel_cat]
             st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
 
-        # --- TAB 4: QUICK EDIT MATRIX ---
+        # --- TAB 4: QUICK EDIT MATRIX / UPDATE TEST EXECUTION ---
         with preprod_tabs[3]:
-            st.markdown("### ✏️ Quick Edit Test Record in Supabase")
+            st.markdown("### ✏️ Update Test Execution")
+            st.markdown("Modify execution details, status, and transaction references directly in Supabase.")
             
+            can_execute = current_role in ["Admin / Manager", "Tester"]
             if can_execute:
                 target_table = st.radio("Select Target Table", ["Withdrawal Card Matrix", "All Transactions Execution Report"], horizontal=True, key="quick_edit_radio")
                 
                 if target_table == "Withdrawal Card Matrix":
                     table_name = "preprod_withdrawal_matrix"
-                    available_ids = mat_df['tc_id'].dropna().unique().tolist()
+                    available_ids = mat_df['tc_id'].dropna().unique().tolist() if not mat_df.empty else []
                 else:
                     table_name = "preprod_all_transactions"
-                    available_ids = exec_df['tc_id'].dropna().unique().tolist()
+                    available_ids = exec_df['tc_id'].dropna().unique().tolist() if not exec_df.empty else []
 
                 selected_tc_id = st.selectbox("Select Test Case ID to Modify", available_ids, key="db_pre_upd_tc")
 
@@ -2196,23 +2198,25 @@ elif menu == "🚀 Pre-Production Testing":
                             
                             if table_name == "preprod_withdrawal_matrix":
                                 with col_u1:
-                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
-                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
-                                    
-                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
                                     withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row_data.get('withdrawal_amount') or 0.0))
                                     atm_id = st.text_input("ATM / CRM ID", value=str(row_data.get('atm_crm_id', '') or ''))
                                     acc_ref = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''))
                                     rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''))
-                                with col_u2:
                                     stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''))
                                     fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''))
+                                with col_u2:
                                     sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''))
                                     receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''))
-                                    tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''))
+                                    
+                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
+                                    
+                                    exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''))
+                                    tester_val = st.text_input("Tester", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''))
 
-                                remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''))
+                                remarks_val = st.text_area("Remarks", value=str(row_data.get('remarks', '') or ''))
 
                                 if st.form_submit_button("💾 Save Withdrawal Update to Supabase", type="primary"):
                                     conn_upd = get_db_connection()
@@ -2221,10 +2225,11 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur = conn_upd.cursor()
                                             cur.execute("""
                                                 UPDATE preprod_withdrawal_matrix 
-                                                SET overall_status = %s, withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
-                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, tester = %s, remarks = %s 
+                                                SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
+                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
+                                                    overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                                 WHERE tc_id = %s
-                                            """, (new_status, withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, fe_val, sibs_val, receipt_val, tester_val, remarks_val, selected_tc_id))
+                                            """, (withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, fe_val, sibs_val, receipt_val, new_status, exec_date_val, tester_val, remarks_val, selected_tc_id))
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()
@@ -2235,25 +2240,27 @@ elif menu == "🚀 Pre-Production Testing":
 
                             else: # All Transactions Execution Report
                                 with col_u1:
-                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
-                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
-                                    
-                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key="exec_status_sel")
-                                    amount_val = st.number_input("Amount", value=float(row_data.get('amount') or 0.0))
                                     acc_ref_ex = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''), key="exec_acc_ref")
-                                    before_bal = st.number_input("Before Balance", value=float(row_data.get('before_balance') or 0.0))
-                                    after_bal = st.number_input("After Balance", value=float(row_data.get('after_balance') or 0.0))
+                                    amount_val = st.number_input("Amount", value=float(row_data.get('amount') or 0.0), key="exec_amt")
                                     rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''), key="exec_rrn")
-                                with col_u2:
                                     stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''), key="exec_stan")
+                                    before_bal = st.number_input("Before Balance", value=float(row_data.get('before_balance') or 0.0), key="exec_bb")
+                                    after_bal = st.number_input("After Balance", value=float(row_data.get('after_balance') or 0.0), key="exec_ab")
+                                with col_u2:
                                     fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''), key="exec_fe")
                                     switch_val = st.text_input("Switch Status", value=str(row_data.get('switch_status', '') or ''), key="exec_switch")
                                     sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''), key="exec_sibs")
                                     receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''), key="exec_receipt")
-                                    tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''), key="exec_tester")
+                                    
+                                    stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                    curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                    new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key="exec_status_sel")
+                                    
+                                    exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key="exec_date")
+                                    tester_val = st.text_input("Tester", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''), key="exec_tester")
 
-                                remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''), key="exec_remarks")
+                                remarks_val = st.text_area("Remarks", value=str(row_data.get('remarks', '') or ''), key="exec_remarks")
 
                                 if st.form_submit_button("💾 Save Transaction Update to Supabase", type="primary"):
                                     conn_upd = get_db_connection()
@@ -2262,10 +2269,11 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur = conn_upd.cursor()
                                             cur.execute("""
                                                 UPDATE preprod_all_transactions 
-                                                SET overall_status = %s, amount = %s, account_reference_no = %s, before_balance = %s, after_balance = %s, 
-                                                    rrn = %s, stan_utano = %s, fe_status = %s, switch_status = %s, sibs_status = %s, receipt_output = %s, tester = %s, remarks = %s 
+                                                SET account_reference_no = %s, amount = %s, rrn = %s, stan_utano = %s, 
+                                                    before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
+                                                    sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                                 WHERE tc_id = %s
-                                            """, (new_status, amount_val, acc_ref_ex, before_bal, after_bal, rrn_val, stan_val, fe_val, switch_val, sibs_val, receipt_val, tester_val, remarks_val, selected_tc_id))
+                                            """, (acc_ref_ex, amount_val, rrn_val, stan_val, before_bal, after_bal, fe_val, switch_val, sibs_val, receipt_val, new_status, exec_date_val, tester_val, remarks_val, selected_tc_id))
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()
