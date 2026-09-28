@@ -2424,11 +2424,16 @@ elif menu == "🚀 Pre-Production Testing":
                         st.markdown("##### 📝 Tester Execution Input")
 
                         # --- SAFE EXTRACTION HELPER ---
-                        def get_val(row, col, default=""):
-                            val = row.get(col)
-                            if pd.isna(val) or val is None:
-                                return default
-                            return val
+                        def get_val(row, key, default=""):
+                            """Safely extracts a value from a dictionary or pandas row."""
+                            if isinstance(row, dict):
+                                val = row.get(key, default)
+                            else:
+                                try:
+                                    val = row[key] if key in row else default
+                                except Exception:
+                                    val = default
+                            return default if val is None or (isinstance(val, float) and pd.isna(val)) else val
 
                         # --- TESTER INPUT / UPDATE FORM ---
                         with st.form(key=f"interactive_form_{row.get('tc_id')}_{idx}"):
