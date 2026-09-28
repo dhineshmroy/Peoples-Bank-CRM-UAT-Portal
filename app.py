@@ -2242,11 +2242,26 @@ elif menu == "🚀 Pre-Production Testing":
                                             SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
                                                 rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
                                                 overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
-                                            WHERE tc_id = %s
-                                        """, (withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, fe_val, sibs_val, receipt_val, new_status, exec_date_val, tester_val, remarks_val, selected_tc_id))
+                                            WHERE tc_id = %s 
+                                            AND account_type = %s 
+                                            AND card_type = %s 
+                                            AND issuing_bank = %s
+                                        """, (
+                                            withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, 
+                                            fe_val, sibs_val, receipt_val, new_status, exec_date_val, 
+                                            tester_val, remarks_val, 
+                                            selected_tc_id, 
+                                            row_data.get('account_type'), 
+                                            row_data.get('card_type'), 
+                                            row_data.get('issuing_bank')
+                                        ))
                                         conn_upd.commit()
                                         cur.close()
                                         conn_upd.close()
+                                        
+                                        # Clear cache / force reload dataframe so UI updates instantly
+                                        st.cache_data.clear() if hasattr(st, "cache_data") else None
+                                        
                                         st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
