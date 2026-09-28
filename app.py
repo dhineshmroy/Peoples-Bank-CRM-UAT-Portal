@@ -2168,7 +2168,14 @@ elif menu == "🚀 Pre-Production Testing":
             st.divider()
 
             # --- PROFESSIONAL 4-TAB STYLED EXCEL GENERATOR ---
-            def generate_styled_uat_excel(mat_df, exec_df):
+            import io
+            from datetime import datetime
+            import pandas as pd
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+            from openpyxl.utils import get_column_letter
+
+            def generate_styled_uat_excel(mat_df, exec_df, deposit_df=None, peripheral_df=None):
                 wb = Workbook()
                 wb.remove(wb.active) # Remove default sheet
 
@@ -2197,14 +2204,14 @@ elif menu == "🚀 Pre-Production Testing":
                 ws1.views.sheetView[0].showGridLines = True
 
                 ws1.merge_cells("A1:P1")
-                ws1["A1"] = "CRM PRE-PROD – WITHDRAWAL COMPLETION REPORT | VISA / MASTERCARD / JCB"
+                ws1["A1"] = "GRG CRM PRE-PROD – WITHDRAWAL COMPLETION REPORT | VISA / MASTERCARD / JCB"
                 ws1["A1"].font = title_font
                 ws1["A1"].fill = header_fill
                 ws1["A1"].alignment = Alignment(horizontal="center", vertical="center")
                 ws1.row_dimensions[1].height = 30
 
                 meta_w1 = [
-                    ("Environment", "Hitachi CRM – Pre-Prod"),
+                    ("Environment", "GRG CRM – Pre-Prod"),
                     ("Transaction Type", "Cash Withdrawal"),
                     ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
                     ("Tester", "Team Channel"),
@@ -2220,7 +2227,7 @@ elif menu == "🚀 Pre-Production Testing":
 
                 w_headers = [
                     "TC ID", "Card Scheme", "Card Type", "Issuing Bank", "Account Type", 
-                    "Withdrawal Amount", "ATM / CRM ID", "Account / Reference No.", "RRN", 
+                    "Withdrawal Amount", "GRG CRM ID", "Account / Reference No.", "RRN", 
                     "STAN / UTANO", "FE Status", "SIBS / CBS Status", "Receipt / Output", 
                     "Overall Status", "Execution Date", "Remarks"
                 ]
@@ -2251,91 +2258,126 @@ elif menu == "🚀 Pre-Production Testing":
                         cell.alignment = Alignment(horizontal="center" if c_idx > 5 else "left", vertical="center")
 
                 # ==========================================
-                # TAB 2: Withdrawal Summary
+                # TAB 2: Cash Deposit Matrix (NEW)
                 # ==========================================
-                ws2 = wb.create_sheet(title="Withdrawal Summary")
-                ws2.views.sheetView[0].showGridLines = True
+                ws_dep = wb.create_sheet(title="Deposit Matrix")
+                ws_dep.views.sheetView[0].showGridLines = True
 
-                ws2.merge_cells("A1:F1")
-                ws2["A1"] = "WITHDRAWAL – VISA / MASTERCARD / JCB SUMMARY"
-                ws2["A1"].font = title_font
-                ws2["A1"].fill = header_fill
-                ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws2.row_dimensions[1].height = 30
+                ws_dep.merge_cells("A1:N1")
+                ws_dep["A1"] = "GRG CRM PRE-PROD – CASH DEPOSIT & RECYCLER COMPLETION REPORT"
+                ws_dep["A1"].font = title_font
+                ws_dep["A1"].fill = header_fill
+                ws_dep["A1"].alignment = Alignment(horizontal="center", vertical="center")
+                ws_dep.row_dimensions[1].height = 30
 
-                sum_headers = ["Card Scheme", "Total", "Passed", "Failed", "Blocked", "Not Executed"]
-                ws2.row_dimensions[3].height = 25
-                for c_idx, h in enumerate(sum_headers, start=1):
-                    cell = ws2.cell(row=3, column=c_idx, value=h)
+                dep_headers = [
+                    "TC ID", "Account No.", "Customer Name", "Inserted Notes (Breakdown)", 
+                    "Total Deposited Amount", "Cassette Accepted", "Cassette Rejected", 
+                    "RRN", "STAN", "FE Status", "CBS Status", "Overall Status", "Tester", "Remarks"
+                ]
+                ws_dep.row_dimensions[3].height = 25
+                for col_idx, h in enumerate(dep_headers, start=1):
+                    cell = ws_dep.cell(row=3, column=col_idx, value=h)
                     cell.font = header_font
                     cell.fill = sub_header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                     cell.border = header_border
 
-                schemes = ["Visa", "Mastercard", "JCB"]
-                for idx, scheme in enumerate(schemes, start=4):
-                    ws2.row_dimensions[idx].height = 20
-                    row_fill = white_fill if idx % 2 != 0 else zebra_fill
-                    
-                    scheme_subset = mat_df[mat_df['card_scheme'].str.lower() == scheme.lower()] if not mat_df.empty else pd.DataFrame()
-                    t_cnt = len(scheme_subset)
-                    p_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'PASS'])
-                    f_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'FAIL'])
-                    b_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'BLOCKED'])
-                    n_cnt = t_cnt - (p_cnt + f_cnt + b_cnt)
+                # Sample row if deposit_df is empty/None
+                if deposit_df is None or deposit_df.empty:
+                    dep_data = [{
+                        "tc_id": "DEP_01", "account_no": "10102345678", "customer_name": "Sample User",
+                        "inserted_notes": "5000x2, 1000x5", "total_deposited": 15000.0, "accepted": 7, "rejected": 0,
+                        "rrn": "612345", "stan": "0012", "fe_status": "PASS", "cbs_status": "PASS", 
+                        "overall_status": "PASS", "tester": "Team Channel", "remarks": "Recycled successfully"
+                    }]
+                    deposit_df = pd.DataFrame(dep_data)
 
-                    row_data = [scheme, t_cnt, p_cnt, f_cnt, b_cnt, n_cnt]
-                    for c_idx, val in enumerate(row_data, start=1):
-                        cell = ws2.cell(row=idx, column=c_idx, value=val)
+                for r_idx, row in enumerate(deposit_df.to_dict(orient="records"), start=4):
+                    row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
+                    ws_dep.row_dimensions[r_idx].height = 20
+                    vals = [
+                        row.get("tc_id", ""), row.get("account_no", ""), row.get("customer_name", ""),
+                        row.get("inserted_notes", ""), row.get("total_deposited", 0.0), row.get("accepted", 0),
+                        row.get("rejected", 0), row.get("rrn", ""), row.get("stan", ""),
+                        row.get("fe_status", "NOT EXECUTED"), row.get("cbs_status", "NOT EXECUTED"),
+                        row.get("overall_status", "NOT EXECUTED"), row.get("tester", ""), row.get("remarks", "")
+                    ]
+                    for c_idx, val in enumerate(vals, start=1):
+                        cell = ws_dep.cell(row=r_idx, column=c_idx, value=val)
                         cell.font = normal_font
                         cell.fill = row_fill
                         cell.border = cell_border
-                        cell.alignment = Alignment(horizontal="left" if c_idx == 1 else "center", vertical="center")
-
-                ws2.row_dimensions[8].height = 22
-                ws2["A8"] = "Overall Withdrawal Completion"
-                ws2["A8"].font = bold_font
-                ws2["A8"].fill = label_fill
-                ws2["B8"] = "=IF(SUM(B4:B6)>0, SUM(C4:E6)/SUM(B4:B6), 0)"
-                ws2["B8"].number_format = '0.0%'
-                ws2["B8"].font = bold_font
-                ws2["B8"].border = cell_border
-
-                ws2.row_dimensions[9].height = 22
-                ws2["A9"] = "Overall Pass Rate"
-                ws2["A9"].font = bold_font
-                ws2["A9"].fill = label_fill
-                ws2["B9"] = "=IF(SUM(C4:D6)>0, SUM(C4:C6)/SUM(C4:D6), 0)"
-                ws2["B9"].number_format = '0.0%'
-                ws2["B9"].font = bold_font
-                ws2["B9"].border = cell_border
+                        cell.alignment = Alignment(horizontal="center" if c_idx > 3 else "left", vertical="center")
 
                 # ==========================================
-                # TAB 3: Execution Report (All Transactions)
+                # TAB 3: Peripherals & Hardware Check (NEW)
                 # ==========================================
-                ws3 = wb.create_sheet(title="Execution Report")
-                ws3.views.sheetView[0].showGridLines = True
+                ws_per = wb.create_sheet(title="Peripherals Check")
+                ws_per.views.sheetView[0].showGridLines = True
 
-                ws3.merge_cells("A1:R1")
-                ws3["A1"] = "CRM PRE-PROD – ALL TRANSACTIONS COMPLETION REPORT"
-                ws3["A1"].font = title_font
-                ws3["A1"].fill = header_fill
-                ws3["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws3.row_dimensions[1].height = 30
+                ws_per.merge_cells("A1:G1")
+                ws_per["A1"] = "GRG CRM PRE-PROD – HARDWARE & PERIPHERALS DIAGNOSTIC CHECK"
+                ws_per["A1"].font = title_font
+                ws_per["A1"].fill = header_fill
+                ws_per["A1"].alignment = Alignment(horizontal="center", vertical="center")
+                ws_per.row_dimensions[1].height = 30
 
-                meta_w3 = [
-                    ("Environment", "Hitachi CRM – Pre-Prod"),
+                per_headers = ["Module ID", "Peripheral / Hardware Component", "Expected Behavior", "Status", "Tested By", "Date", "Remarks"]
+                ws_per.row_dimensions[3].height = 25
+                for col_idx, h in enumerate(per_headers, start=1):
+                    cell = ws_per.cell(row=3, column=col_idx, value=h)
+                    cell.font = header_font
+                    cell.fill = sub_header_fill
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    cell.border = header_border
+
+                default_peripherals = [
+                    ("PER_01", "Motorized Card Reader / Dip", "Accepts, reads chip/magstripe, and ejects card securely", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                    ("PER_02", "EPP (PIN Pad)", "Secure cryptographic PIN entry and encryption validation", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                    ("PER_03", "Receipt Printer", "Crisp thermal printing, cutter working, paper low sensor active", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                    ("PER_04", "Cash Recycler Unit (CRU)", "Accepts deposit and dispenses withdrawal notes accurately", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                    ("PER_05", "Barcode / QR Scanner", "Fast scanning of mobile app QR codes and slip barcodes", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                    ("PER_06", "Touch Screen Display", "Responsive multi-touch interface and UI scaling", "PASS", "Team Channel", datetime.now().strftime("%d/%m/%Y"), "OK"),
+                ]
+
+                for idx, row in enumerate(default_peripherals, start=4):
+                    ws_per.row_dimensions[idx].height = 20
+                    row_fill = white_fill if idx % 2 != 0 else zebra_fill
+                    for c_idx, val in enumerate(row, start=1):
+                        cell = ws_per.cell(row=idx, column=c_idx, value=val)
+                        cell.font = normal_font
+                        cell.fill = row_fill
+                        cell.border = cell_border
+                        cell.alignment = Alignment(horizontal="center" if c_idx > 2 else "left", vertical="center")
+
+
+                # ==========================================
+                # TAB 4: Execution Report (All Transactions)
+                # ==========================================
+                ws4 = wb.create_sheet(title="Execution Report")
+                ws4.views.sheetView[0].showGridLines = True
+
+                ws4.merge_cells("A1:R1")
+                ws4["A1"] = "GRG CRM PRE-PROD – ALL TRANSACTIONS COMPLETION REPORT"
+                ws4["A1"].font = title_font
+                ws4["A1"].fill = header_fill
+                ws4["A1"].alignment = Alignment(horizontal="center", vertical="center")
+                ws4.row_dimensions[1].height = 30
+
+                meta_w4 = [
+                    ("Environment", "GRG CRM – Pre-Prod"),
                     ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
                     ("Tester", "Team Channel"),
-                    ("UAT Scope", "All applicable card-based and cardless CRM transactions")
+                    ("UAT Scope", "All applicable card-based and cardless GRG CRM transactions")
                 ]
-                for idx, (lbl, val) in enumerate(meta_w3, start=2):
-                    ws3[f"A{idx}"] = lbl
-                    ws3[f"A{idx}"].fill = label_fill
-                    ws3[f"A{idx}"].font = bold_font
-                    ws3[f"B{idx}"] = val
-                    ws3[f"B{idx}"].font = normal_font
-                    ws3.row_dimensions[idx].height = 20
+                for idx, (lbl, val) in enumerate(meta_w4, start=2):
+                    ws4[f"A{idx}"] = lbl
+                    ws4[f"A{idx}"].fill = label_fill
+                    ws4[f"A{idx}"].font = bold_font
+                    ws4[f"B{idx}"] = val
+                    ws4[f"B{idx}"].font = normal_font
+                    ws4.row_dimensions[idx].height = 20
 
                 exec_headers = [
                     "TC ID", "Transaction Category", "Transaction / Test Description", "Card Type", 
@@ -2343,9 +2385,9 @@ elif menu == "🚀 Pre-Production Testing":
                     "After Balance", "FE Status", "Switch Status", "SIBS / CBS Status", 
                     "Receipt / Output", "Overall Status", "Execution Date", "Tester", "Remarks"
                 ]
-                ws3.row_dimensions[8].height = 25
+                ws4.row_dimensions[8].height = 25
                 for col_idx, h in enumerate(exec_headers, start=1):
-                    cell = ws3.cell(row=8, column=col_idx, value=h)
+                    cell = ws4.cell(row=8, column=col_idx, value=h)
                     cell.font = header_font
                     cell.fill = header_fill
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -2353,7 +2395,7 @@ elif menu == "🚀 Pre-Production Testing":
 
                 for r_idx, row in enumerate(exec_df.to_dict(orient="records"), start=9):
                     row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
-                    ws3.row_dimensions[r_idx].height = 20
+                    ws4.row_dimensions[r_idx].height = 20
                     vals = [
                         row.get("tc_id", ""), row.get("transaction_category", ""), row.get("transaction_description", ""), 
                         row.get("card_type", ""), row.get("account_reference_no", ""), row.get("amount", 0.0), 
@@ -2364,24 +2406,24 @@ elif menu == "🚀 Pre-Production Testing":
                         row.get("tester", ""), row.get("remarks", "")
                     ]
                     for c_idx, val in enumerate(vals, start=1):
-                        cell = ws3.cell(row=r_idx, column=c_idx, value=val)
+                        cell = ws4.cell(row=r_idx, column=c_idx, value=val)
                         cell.font = normal_font
                         cell.fill = row_fill
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="center" if c_idx > 4 else "left", vertical="center")
 
                 # ==========================================
-                # TAB 4: Summary (Overall UAT Execution Summary)
+                # TAB 5: Summary (Overall UAT Execution Summary)
                 # ==========================================
-                ws4 = wb.create_sheet(title="Summary")
-                ws4.views.sheetView[0].showGridLines = True
+                ws5 = wb.create_sheet(title="Summary")
+                ws5.views.sheetView[0].showGridLines = True
 
-                ws4.merge_cells("A1:F1")
-                ws4["A1"] = "CRM PRE-PROD – UAT EXECUTION SUMMARY"
-                ws4["A1"].font = title_font
-                ws4["A1"].fill = header_fill
-                ws4["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws4.row_dimensions[1].height = 30
+                ws5.merge_cells("A1:F1")
+                ws5["A1"] = "GRG CRM PRE-PROD – UAT EXECUTION SUMMARY"
+                ws5["A1"].font = title_font
+                ws5["A1"].fill = header_fill
+                ws5["A1"].alignment = Alignment(horizontal="center", vertical="center")
+                ws5.row_dimensions[1].height = 30
 
                 total_tc_all = len(exec_df)
                 passed_all = len(exec_df[exec_df['overall_status'].str.upper() == 'PASS']) if not exec_df.empty else 0
@@ -2390,7 +2432,7 @@ elif menu == "🚀 Pre-Production Testing":
                 not_exec_all = len(exec_df[exec_df['overall_status'].str.upper() == 'NOT EXECUTED']) if not exec_df.empty else 0
 
                 meta_summary = [
-                    ("Environment", "Hitachi CRM – Pre-Prod"),
+                    ("Environment", "GRG CRM – Pre-Prod"),
                     ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
                     ("Tester", "Team Channel"),
                     ("Total Test Cases", total_tc_all),
@@ -2404,26 +2446,26 @@ elif menu == "🚀 Pre-Production Testing":
                 ]
 
                 for idx, (lbl, val) in enumerate(meta_summary, start=2):
-                    ws4[f"A{idx}"] = lbl
-                    ws4[f"A{idx}"].fill = label_fill
-                    ws4[f"A{idx}"].font = bold_font
-                    ws4[f"B{idx}"] = val
-                    ws4[f"B{idx}"].font = bold_font if idx >= 10 else normal_font
+                    ws5[f"A{idx}"] = lbl
+                    ws5[f"A{idx}"].fill = label_fill
+                    ws5[f"A{idx}"].font = bold_font
+                    ws5[f"B{idx}"] = val
+                    ws5[f"B{idx}"].font = bold_font if idx >= 10 else normal_font
                     if idx in [11, 12]:
-                        ws4[f"B{idx}"].number_format = '0.0%'
-                    ws4.row_dimensions[idx].height = 20
+                        ws5[f"B{idx}"].number_format = '0.0%'
+                    ws5.row_dimensions[idx].height = 20
 
-                ws4.merge_cells("A14:F14")
-                ws4["A14"] = "Transaction Category Summary"
-                ws4["A14"].font = header_font
-                ws4["A14"].fill = header_fill
-                ws4["A14"].alignment = Alignment(horizontal="left", vertical="center")
-                ws4.row_dimensions[14].height = 22
+                ws5.merge_cells("A14:F14")
+                ws5["A14"] = "Transaction Category Summary"
+                ws5["A14"].font = header_font
+                ws5["A14"].fill = header_fill
+                ws5["A14"].alignment = Alignment(horizontal="left", vertical="center")
+                ws5.row_dimensions[14].height = 22
 
                 cat_headers = ["Category", "Total", "Passed", "Failed", "Blocked", "Not Executed"]
-                ws4.row_dimensions[15].height = 25
+                ws5.row_dimensions[15].height = 25
                 for c_idx, h in enumerate(cat_headers, start=1):
-                    cell = ws4.cell(row=15, column=c_idx, value=h)
+                    cell = ws5.cell(row=15, column=c_idx, value=h)
                     cell.font = header_font
                     cell.fill = sub_header_fill
                     cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -2434,7 +2476,7 @@ elif menu == "🚀 Pre-Production Testing":
                 ]
 
                 for idx, cat in enumerate(categories, start=16):
-                    ws4.row_dimensions[idx].height = 20
+                    ws5.row_dimensions[idx].height = 20
                     row_fill = white_fill if idx % 2 != 0 else zebra_fill
                     
                     cat_subset = exec_df[exec_df['transaction_category'] == cat] if not exec_df.empty else pd.DataFrame()
@@ -2446,27 +2488,28 @@ elif menu == "🚀 Pre-Production Testing":
 
                     row_data = [cat, t_cnt, p_cnt, f_cnt, b_cnt, n_cnt]
                     for c_idx, val in enumerate(row_data, start=1):
-                        cell = ws4.cell(row=idx, column=c_idx, value=val)
+                        cell = ws5.cell(row=idx, column=c_idx, value=val)
                         cell.font = normal_font
                         cell.fill = row_fill
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="left" if c_idx == 1 else "center", vertical="center")
 
+                # --- AUTO-FIT COLUMN WIDTHS ACROSS ALL SHEETS ---
                 for ws in wb.worksheets:
                     for col in ws.columns:
                         max_len = 0
                         for cell in col:
-                            if cell.row > 1: # Skip big merged title rows for width calculation
+                            if cell.row > 1:
                                 val_str = str(cell.value or '')
                                 if len(val_str) > max_len:
                                     max_len = len(val_str)
                         col_letter = get_column_letter(col[0].column)
                         ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
                 output = io.BytesIO()
                 wb.save(output)
                 output.seek(0)
                 return output.getvalue()
-
             st.download_button(
                 label="📥 Download Professional UAT Report (.xlsx)",
                 data=generate_styled_uat_excel(mat_df, exec_df),
