@@ -3090,25 +3090,25 @@ elif menu == "🚀 Pre-Production Testing":
                                             """, (
                                                 str(acc_ref_ex), 
                                                 float(amount_val or 0.0), 
-                                                str(rrn_val), 
-                                                str(stan_val), 
+                                                str(rrn_in), 
+                                                str(stan_in), 
                                                 float(before_bal or 0.0), 
                                                 float(after_bal or 0.0), 
-                                                str(fe_val), 
-                                                str(switch_val), 
-                                                str(sibs_val), 
+                                                str(fe_in), 
+                                                str(switch_in), 
+                                                str(sibs_in), 
                                                 receipt_bytes_to_save, 
-                                                str(new_status), 
-                                                str(exec_date_val), 
-                                                str(tester_val), 
-                                                str(remarks_val), 
-                                                str(selected_tc_id)
+                                                str(new_st), 
+                                                str(exec_date_in), 
+                                                str(tester_in), 
+                                                str(rem_in), 
+                                                str(row.get('tc_id', ''))
                                             ))
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()
                                             st.cache_data.clear()
-                                            st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
+                                            st.success(f"Successfully recorded execution for **{row.get('tc_id', '')}**!")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Update failed: {e}")
