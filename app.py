@@ -2211,27 +2211,35 @@ elif menu == "🚀 Pre-Production Testing":
                         col_u1, col_u2 = st.columns(2)
                         
                         if table_name == "preprod_withdrawal_matrix":
+                            # Safe extraction helpers
+                            def get_val(col, default=""):
+                                val = row_data.get(col)
+                                if pd.isna(val) or val is None:
+                                    return default
+                                return val
+
                             with col_u1:
-                                withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row_data.get('withdrawal_amount') or 0.0))
-                                atm_id = st.text_input("ATM / CRM ID", value=str(row_data.get('atm_crm_id', '') if pd.notna(row_data.get('atm_crm_id')) else ''))
-                                acc_ref = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') if pd.notna(row_data.get('account_reference_no')) else ''))
-                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') if pd.notna(row_data.get('rrn')) else ''))
-                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') if pd.notna(row_data.get('stan_utano')) else ''))
-                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') if pd.notna(row_data.get('fe_status')) else ''))
+                                withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val('withdrawal_amount', 0.0) or 0.0), key=f"amt_{selected_tc_id}")
+                                atm_id = st.text_input("ATM / CRM ID", value=str(get_val('atm_crm_id', '')), key=f"atm_{selected_tc_id}")
+                                acc_ref = st.text_input("Account / Reference No.", value=str(get_val('account_reference_no', '')), key=f"accref_{selected_tc_id}")
+                                rrn_val = st.text_input("RRN", value=str(get_val('rrn', '')), key=f"rrn_{selected_tc_id}")
+                                stan_val = st.text_input("STAN / UTANO", value=str(get_val('stan_utano', '')), key=f"stan_{selected_tc_id}")
+                                fe_val = st.text_input("FE Status", value=str(get_val('fe_status', '')), key=f"fe_{selected_tc_id}")
                             with col_u2:
-                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') if pd.notna(row_data.get('sibs_status')) else ''))
-                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') if pd.notna(row_data.get('receipt_output')) else ''))
+                                sibs_val = st.text_input("SIBS / CBS Status", value=str(get_val('sibs_status', '')), key=f"sibs_{selected_tc_id}")
+                                receipt_val = st.text_input("Receipt / Output", value=str(get_val('receipt_output', '')), key=f"receipt_{selected_tc_id}")
                                 
                                 stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                curr_status = str(get_val('overall_status', 'NOT EXECUTED')).upper().strip()
                                 if curr_status not in stat_options: 
                                     curr_status = "NOT EXECUTED"
-                                new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
+                                new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key=f"status_{selected_tc_id}")
                                 
-                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) if pd.notna(row_data.get('execution_date')) else datetime.now().strftime('%Y-%m-%d')))
-                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) if pd.notna(row_data.get('tester')) else st.session_state.get('logged_user', '')))
+                                default_date = datetime.now().strftime('%Y-%m-%d')
+                                exec_date_val = st.text_input("Execution Date", value=str(get_val('execution_date', default_date)), key=f"date_{selected_tc_id}")
+                                tester_val = st.text_input("Tester Name", value=str(get_val('tester', st.session_state.get('logged_user', ''))), key=f"tester_{selected_tc_id}")
 
-                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') if pd.notna(row_data.get('remarks')) else ''))
+                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(get_val('remarks', '')), key=f"remarks_{selected_tc_id}")
 
                             if st.form_submit_button("💾 Save Withdrawal Execution to Supabase", type="primary"):
                                 conn_upd = get_db_connection()
