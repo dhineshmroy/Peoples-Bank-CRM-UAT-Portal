@@ -2191,16 +2191,16 @@ elif menu == "🚀 Pre-Production Testing":
                     
                     if table_name == "preprod_withdrawal_matrix":
                         c1, c2, c3, c4, c5 = st.columns(5)
-                        c1.metric("TC ID", row_data.get('tc_id', 'N/A'))
-                        c2.metric("Card Scheme", row_data.get('card_scheme', 'N/A'))
-                        c3.metric("Card Type", row_data.get('card_type', 'N/A'))
-                        c4.metric("Issuing Bank", row_data.get('issuing_bank', 'N/A'))
-                        c5.metric("Account Type", row_data.get('account_type', 'N/A'))
+                        c1.metric("TC ID", str(row_data.get('tc_id', 'N/A')))
+                        c2.metric("Card Scheme", str(row_data.get('card_scheme', 'N/A')))
+                        c3.metric("Card Type", str(row_data.get('card_type', 'N/A')))
+                        c4.metric("Issuing Bank", str(row_data.get('issuing_bank', 'N/A')))
+                        c5.metric("Account Type", str(row_data.get('account_type', 'N/A')))
                     else:
                         c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("TC ID", row_data.get('tc_id', 'N/A'))
-                        c2.metric("Category", row_data.get('transaction_category', 'N/A'))
-                        c3.metric("Card Type", row_data.get('card_type', 'N/A'))
+                        c1.metric("TC ID", str(row_data.get('tc_id', 'N/A')))
+                        c2.metric("Category", str(row_data.get('transaction_category', 'N/A')))
+                        c3.metric("Card Type", str(row_data.get('card_type', 'N/A')))
                         c4.markdown(f"**Description:**\n{row_data.get('transaction_description', 'N/A')}")
 
                     st.markdown("---")
@@ -2213,24 +2213,25 @@ elif menu == "🚀 Pre-Production Testing":
                         if table_name == "preprod_withdrawal_matrix":
                             with col_u1:
                                 withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row_data.get('withdrawal_amount') or 0.0))
-                                atm_id = st.text_input("ATM / CRM ID", value=str(row_data.get('atm_crm_id', '') or ''))
-                                acc_ref = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''))
-                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''))
-                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''))
-                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''))
+                                atm_id = st.text_input("ATM / CRM ID", value=str(row_data.get('atm_crm_id', '') if pd.notna(row_data.get('atm_crm_id')) else ''))
+                                acc_ref = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') if pd.notna(row_data.get('account_reference_no')) else ''))
+                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') if pd.notna(row_data.get('rrn')) else ''))
+                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') if pd.notna(row_data.get('stan_utano')) else ''))
+                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') if pd.notna(row_data.get('fe_status')) else ''))
                             with col_u2:
-                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''))
-                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''))
+                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') if pd.notna(row_data.get('sibs_status')) else ''))
+                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') if pd.notna(row_data.get('receipt_output')) else ''))
                                 
                                 stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
                                 curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
-                                if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                if curr_status not in stat_options: 
+                                    curr_status = "NOT EXECUTED"
                                 new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status))
                                 
-                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''))
-                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''))
+                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) if pd.notna(row_data.get('execution_date')) else datetime.now().strftime('%Y-%m-%d')))
+                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) if pd.notna(row_data.get('tester')) else st.session_state.get('logged_user', '')))
 
-                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''))
+                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') if pd.notna(row_data.get('remarks')) else ''))
 
                             if st.form_submit_button("💾 Save Withdrawal Execution to Supabase", type="primary"):
                                 conn_upd = get_db_connection()
@@ -2259,8 +2260,8 @@ elif menu == "🚀 Pre-Production Testing":
                                         cur.close()
                                         conn_upd.close()
                                         
-                                        # Clear cache / force reload dataframe so UI updates instantly
-                                        st.cache_data.clear() if hasattr(st, "cache_data") else None
+                                        # Clear cache so fresh data is pulled from DB on rerun
+                                        st.cache_data.clear()
                                         
                                         st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
@@ -2269,27 +2270,28 @@ elif menu == "🚀 Pre-Production Testing":
 
                         else: # All Transactions Execution Report
                             with col_u1:
-                                acc_ref_ex = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') or ''), key="exec_acc_ref")
+                                acc_ref_ex = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') if pd.notna(row_data.get('account_reference_no')) else ''), key="exec_acc_ref")
                                 amount_val = st.number_input("Amount", value=float(row_data.get('amount') or 0.0), key="exec_amt")
-                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') or ''), key="exec_rrn")
-                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') or ''), key="exec_stan")
+                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') if pd.notna(row_data.get('rrn')) else ''), key="exec_rrn")
+                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') if pd.notna(row_data.get('stan_utano')) else ''), key="exec_stan")
                                 before_bal = st.number_input("Before Balance", value=float(row_data.get('before_balance') or 0.0), key="exec_bb")
                                 after_bal = st.number_input("After Balance", value=float(row_data.get('after_balance') or 0.0), key="exec_ab")
                             with col_u2:
-                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') or ''), key="exec_fe")
-                                switch_val = st.text_input("Switch Status", value=str(row_data.get('switch_status', '') or ''), key="exec_switch")
-                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') or ''), key="exec_sibs")
-                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') or ''), key="exec_receipt")
+                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') if pd.notna(row_data.get('fe_status')) else ''), key="exec_fe")
+                                switch_val = st.text_input("Switch Status", value=str(row_data.get('switch_status', '') if pd.notna(row_data.get('switch_status')) else ''), key="exec_switch")
+                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') if pd.notna(row_data.get('sibs_status')) else ''), key="exec_sibs")
+                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') if pd.notna(row_data.get('receipt_output')) else ''), key="exec_receipt")
                                 
                                 stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
                                 curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
-                                if curr_status not in stat_options: curr_status = "NOT EXECUTED"
+                                if curr_status not in stat_options: 
+                                    curr_status = "NOT EXECUTED"
                                 new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key="exec_status_sel")
                                 
-                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key="exec_date")
-                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) or ''), key="exec_tester")
+                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) if pd.notna(row_data.get('execution_date')) else datetime.now().strftime('%Y-%m-%d')), key="exec_date")
+                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) if pd.notna(row_data.get('tester')) else st.session_state.get('logged_user', '')), key="exec_tester")
 
-                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') or ''), key="exec_remarks")
+                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') if pd.notna(row_data.get('remarks')) else ''), key="exec_remarks")
 
                             if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
                                 conn_upd = get_db_connection()
@@ -2306,6 +2308,10 @@ elif menu == "🚀 Pre-Production Testing":
                                         conn_upd.commit()
                                         cur.close()
                                         conn_upd.close()
+                                        
+                                        # Clear cache so fresh data is pulled from DB on rerun
+                                        st.cache_data.clear()
+                                        
                                         st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
