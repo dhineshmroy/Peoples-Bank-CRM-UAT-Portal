@@ -2612,9 +2612,17 @@ elif menu == "🚀 Pre-Production Testing":
             import streamlit as st
             from datetime import datetime
 
-            # Assuming receipt_images is your dictionary mapping TC IDs to uploaded image files/paths
-            # e.g., receipt_images = {"DEP_01": uploaded_file, "BP_02": uploaded_file2}
+            # 1. Initialize receipt_images dictionary (or capture it from your file uploader)
+            receipt_images = {} 
 
+            # If you have a file uploader for receipts:
+            # uploaded_receipts = st.file_uploader("Upload Receipts", accept_multiple_files=True)
+            # if uploaded_receipts:
+            #     for file in uploaded_receipts:
+            #         tc_id = file.name.split(".")[0]  # Or match your naming convention
+            #         receipt_images[tc_id] = file
+
+            # 2. Side-by-side download buttons
             col1, col2 = st.columns(2)
 
             with col1:
