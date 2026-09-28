@@ -3061,34 +3061,58 @@ elif menu == "🚀 Pre-Production Testing":
 
                                 rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_exec_rem_{idx}")
 
-                                if st.form_submit_button(f"💾 Save Transaction Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
-                                    receipt_bytes_to_save = existing_receipt_bytes
-                                    if uploaded_file is not None:
-                                        receipt_bytes_to_save = uploaded_file.getvalue()
+                                if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
+                                receipt_bytes_to_save = existing_receipt_bytes
+                                if uploaded_file is not None:
+                                    receipt_bytes_to_save = uploaded_file.getvalue()
 
-                                    conn_run = get_db_connection()
-                                    if conn_run:
-                                        try:
-                                            cur = conn_run.cursor()
-                                            cur.execute("""
-                                                UPDATE preprod_all_transactions 
-                                                SET account_reference_no = %s, amount = %s, rrn = %s, stan_utano = %s, 
-                                                    before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
-                                                    sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
-                                                WHERE tc_id = %s
-                                            """, (
-                                                acc_ref_ex, amount_val, rrn_in, stan_in, before_bal, after_bal, 
-                                                fe_in, switch_in, sibs_in, receipt_bytes_to_save, new_st, 
-                                                str(exec_date_in), tester_in, rem_in, row.get('tc_id')
-                                            ))
-                                            conn_run.commit()
-                                            cur.close()
-                                            conn_run.close()
-                                            st.cache_data.clear()
-                                            st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Execution save failed: {e}")
+                                conn_upd = get_db_connection()
+                                if conn_upd:
+                                    try:
+                                        cur = conn_upd.cursor()
+                                        # Explicitly update by name matching to avoid index shifting/type errors
+                                        cur.execute("""
+                                            UPDATE preprod_all_transactions 
+                                            SET account_reference_no = %(acc_ref)s, 
+                                                amount = %(amt)s, 
+                                                rrn = %(rrn)s, 
+                                                stan_utano = %(stan)s, 
+                                                before_balance = %(b_bal)s, 
+                                                after_balance = %(a_bal)s, 
+                                                fe_status = %(fe)s, 
+                                                switch_status = %(sw)s, 
+                                                sibs_status = %(sibs)s, 
+                                                receipt_output = %(rec)s, 
+                                                overall_status = %(status)s, 
+                                                execution_date = %(edate)s, 
+                                                tester = %(tester)s, 
+                                                remarks = %(rem)s 
+                                            WHERE tc_id = %(tc_id)s
+                                        """, {
+                                            "acc_ref": acc_ref_ex,
+                                            "amt": float(amount_val),
+                                            "rrn": rrn_val,
+                                            "stan": stan_val,
+                                            "b_bal": float(before_bal),
+                                            "a_bal": float(after_bal),
+                                            "fe": fe_val,
+                                            "sw": switch_val,
+                                            "sibs": sibs_val,
+                                            "rec": receipt_bytes_to_save,
+                                            "status": new_status,
+                                            "edate": str(exec_date_val),
+                                            "tester": tester_val,
+                                            "rem": remarks_val,
+                                            "tc_id": selected_tc_id
+                                        })
+                                        conn_upd.commit()
+                                        cur.close()
+                                        conn_upd.close()
+                                        st.cache_data.clear()
+                                        st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Update failed: {e}")
     else:
         st.info("No records found in Supabase pre-production tables. Please run your migration script first.")
 
