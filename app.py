@@ -2383,9 +2383,18 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur = conn_run.cursor()
                                             cur.execute("""
                                                 UPDATE preprod_withdrawal_matrix 
-                                                SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
-                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
-                                                    overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
+                                                SET withdrawal_amount = %s, 
+                                                    atm_crm_id = %s, 
+                                                    account_reference_no = %s, 
+                                                    rrn = %s, 
+                                                    stan_utano = %s, 
+                                                    fe_status = %s, 
+                                                    sibs_status = %s, 
+                                                    receipt_output = %s, 
+                                                    overall_status = %s, 
+                                                    execution_date = %s, 
+                                                    tester = %s, 
+                                                    remarks = %s 
                                                 WHERE tc_id = %s 
                                                 AND account_type = %s 
                                                 AND card_type = %s 
@@ -2403,7 +2412,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur.close()
                                             conn_run.close()
                                             st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
-                                            st.rerun()
+                                            st.rerun()  # Refreshes the app and re-fetches the latest state from the DB
                                         except Exception as e:
                                             st.error(f"Execution save failed: {e}")
 
