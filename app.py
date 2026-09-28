@@ -2395,31 +2395,28 @@ elif menu == "🚀 Pre-Production Testing":
                                 
                                 # --- Column 1: Inputs ---
                                 with c_f1:
-                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"run_wamt_{idx}")
-                                    atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"run_atm_{idx}")
-                                    acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"run_accref_{idx}")
-                                    rrn_in = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"run_rrn_{idx}")
-                                    stan_in = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"run_stan_{idx}")
+                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"run_wamt_{row.get('tc_id')}_{idx}")
+                                    atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"run_atm_{row.get('tc_id')}_{idx}")
+                                    acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"run_accref_{row.get('tc_id')}_{idx}")
+                                    rrn_in = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"run_rrn_{row.get('tc_id')}_{idx}")
+                                    stan_in = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"run_stan_{row.get('tc_id')}_{idx}")
                                     
                                     # FE Status Dropdown
                                     curr_fe = str(get_val(row, 'fe_status', 'NOT EXECUTED')).upper().strip()
                                     if curr_fe not in status_choices: curr_fe = "NOT EXECUTED"
-                                    fe_in = st.selectbox("FE Status", status_choices, index=status_choices.index(curr_fe), key=f"run_fe_{idx}")
+                                    fe_in = st.selectbox("FE Status", status_choices, index=status_choices.index(curr_fe), key=f"run_fe_{row.get('tc_id')}_{idx}")
 
                                 # --- Column 2: Status, Date & Image Upload ---
                                 with c_f2:
                                     # SIBS / CBS Status Dropdown
                                     curr_sibs = str(get_val(row, 'sibs_status', 'NOT EXECUTED')).upper().strip()
                                     if curr_sibs not in status_choices: curr_sibs = "NOT EXECUTED"
-                                    sibs_in = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"run_sibs_{idx}")
+                                    sibs_in = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"run_sibs_{row.get('tc_id')}_{idx}")
                                     
                                     # Receipt / Output Image Upload
-                                    uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_rec_file_{idx}")
+                                    uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_rec_file_{row.get('tc_id')}_{idx}")
                                     
-                                    # Read existing image from DB if available to keep it if no new file is uploaded
                                     existing_receipt_bytes = row.get('receipt_output')
-                                    
-                                    # Display currently stored receipt if it exists
                                     if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
                                         st.markdown("**Current Stored Receipt:**")
                                         try:
@@ -2430,7 +2427,7 @@ elif menu == "🚀 Pre-Production Testing":
                                     # Overall Status Dropdown
                                     curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
                                     if curr_st not in status_choices: curr_st = "NOT EXECUTED"
-                                    new_st = st.selectbox("Overall Status", status_choices, index=status_choices.index(curr_st), key=f"run_st_{idx}")
+                                    new_st = st.selectbox("Overall Status", status_choices, index=status_choices.index(curr_st), key=f"run_st_{row.get('tc_id')}_{idx}")
                                     
                                     # Execution Date Picker
                                     raw_date = get_val(row, 'execution_date', datetime.now().date())
@@ -2442,14 +2439,14 @@ elif menu == "🚀 Pre-Production Testing":
                                     else:
                                         parsed_date = datetime.now().date()
                                     
-                                    exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_date_{idx}")
-                                    tester_in = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"run_tester_{idx}")
+                                    exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_date_{row.get('tc_id')}_{idx}")
+                                    tester_in = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"run_tester_{row.get('tc_id')}_{idx}")
 
-                                rem_in = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"run_rem_{idx}")
+                                # Unique key for remarks text area
+                                rem_in = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"run_rem_{row.get('tc_id')}_{idx}")
 
                                 # --- FORM SUBMISSION & DB SAVE ---
                                 if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary"):
-                                    # Process uploaded image bytes
                                     receipt_bytes_to_save = existing_receipt_bytes
                                     if uploaded_file is not None:
                                         receipt_bytes_to_save = uploaded_file.getvalue()
@@ -2481,91 +2478,6 @@ elif menu == "🚀 Pre-Production Testing":
                                             conn_run.close()
                                             
                                             st.cache_data.clear()
-                                            st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Execution save failed: {e}")
-
-                                rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_rem_{idx}")
-
-                                if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
-                                    conn_run = get_db_connection()
-                                    if conn_run:
-                                        try:
-                                            cur = conn_run.cursor()
-                                            cur.execute("""
-                                                UPDATE preprod_withdrawal_matrix 
-                                                SET withdrawal_amount = %s, 
-                                                    atm_crm_id = %s, 
-                                                    account_reference_no = %s, 
-                                                    rrn = %s, 
-                                                    stan_utano = %s, 
-                                                    fe_status = %s, 
-                                                    sibs_status = %s, 
-                                                    receipt_output = %s, 
-                                                    overall_status = %s, 
-                                                    execution_date = %s, 
-                                                    tester = %s, 
-                                                    remarks = %s 
-                                                WHERE tc_id = %s 
-                                                AND account_type = %s 
-                                                AND card_type = %s 
-                                                AND issuing_bank = %s
-                                            """, (
-                                                withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, 
-                                                fe_in, sibs_in, receipt_in, new_st, exec_date_in, 
-                                                tester_in, rem_in, 
-                                                row.get('tc_id'), 
-                                                row.get('account_type'), 
-                                                row.get('card_type'), 
-                                                row.get('issuing_bank')
-                                            ))
-                                            conn_run.commit()
-                                            cur.close()
-                                            conn_run.close()
-                                            st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
-                                            st.rerun()  # Refreshes the app and re-fetches the latest state from the DB
-                                        except Exception as e:
-                                            st.error(f"Execution save failed: {e}")
-
-                            else: # All Transactions Execution Report
-                                with c_f1:
-                                    acc_ref_ex = st.text_input("Account / Reference No.", value=str(row.get('account_reference_no', '') or ''), key=f"run_exec_accref_{idx}")
-                                    amount_val = st.number_input("Amount", value=float(row.get('amount') or 0.0), key=f"run_exec_amt_{idx}")
-                                    rrn_in = st.text_input("RRN", value=str(row.get('rrn', '') or ''), key=f"run_exec_rrn_{idx}")
-                                    stan_in = st.text_input("STAN / UTANO", value=str(row.get('stan_utano', '') or ''), key=f"run_exec_stan_{idx}")
-                                    before_bal = st.number_input("Before Balance", value=float(row.get('before_balance') or 0.0), key=f"run_exec_bb_{idx}")
-                                    after_bal = st.number_input("After Balance", value=float(row.get('after_balance') or 0.0), key=f"run_exec_ab_{idx}")
-                                with c_f2:
-                                    fe_in = st.text_input("FE Status", value=str(row.get('fe_status', '') or ''), key=f"run_exec_fe_{idx}")
-                                    switch_in = st.text_input("Switch Status", value=str(row.get('switch_status', '') or ''), key=f"run_exec_switch_{idx}")
-                                    sibs_in = st.text_input("SIBS / CBS Status", value=str(row.get('sibs_status', '') or ''), key=f"run_exec_sibs_{idx}")
-                                    receipt_in = st.text_input("Receipt / Output", value=str(row.get('receipt_output', '') or ''), key=f"run_exec_rec_{idx}")
-                                    
-                                    stat_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                    curr_st = stat if stat in stat_opts else "NOT EXECUTED"
-                                    new_st = st.selectbox("Overall Status", stat_opts, index=stat_opts.index(curr_st) if curr_st in stat_opts else 0, key=f"run_exec_st_{idx}")
-                                    
-                                    exec_date_in = st.text_input("Execution Date", value=str(row.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key=f"run_exec_date_{idx}")
-                                    tester_in = st.text_input("Tester Name", value=str(row.get('tester', st.session_state.get('logged_user', '')) or ''), key=f"run_exec_tester_{idx}")
-
-                                rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_exec_rem_{idx}")
-
-                                if st.form_submit_button(f"💾 Save Transaction Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
-                                    conn_run = get_db_connection()
-                                    if conn_run:
-                                        try:
-                                            cur = conn_run.cursor()
-                                            cur.execute("""
-                                                UPDATE preprod_all_transactions 
-                                                SET account_reference_no = %s, amount = %s, rrn = %s, stan_utano = %s, 
-                                                    before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
-                                                    sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
-                                                WHERE tc_id = %s
-                                            """, (acc_ref_ex, amount_val, rrn_in, stan_in, before_bal, after_bal, fe_in, switch_in, sibs_in, receipt_in, new_st, exec_date_in, tester_in, rem_in, row.get('tc_id')))
-                                            conn_run.commit()
-                                            cur.close()
-                                            conn_run.close()
                                             st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
                                             st.rerun()
                                         except Exception as e:
