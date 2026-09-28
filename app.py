@@ -56,6 +56,8 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, KeepTogether, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import io
+from PIL import Image
 
 def generate_screen_issues_excel(df):
     wb = openpyxl.Workbook()
@@ -185,6 +187,26 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.platypus import Image as RLImage
+
+
+# --- SAFE IMAGE DISPLAY HELPER ---
+def render_stored_receipt(receipt_data):
+    if receipt_data:
+        st.markdown("**Current Stored Receipt:**")
+        try:
+            # Handle bytearray, bytes, or memoryview from PostgreSQL BYTEA
+            if isinstance(receipt_data, memoryview):
+                receipt_bytes = receipt_data.tobytes()
+            elif isinstance(receipt_data, (bytes, bytearray)):
+                receipt_bytes = bytes(receipt_data)
+            else:
+                receipt_bytes = None
+                
+            if receipt_bytes:
+                image = Image.open(io.BytesIO(receipt_bytes))
+                st.image(image, caption="Stored Receipt Preview", width=200)
+        except Exception as img_err:
+            st.warning(f"Could not render stored preview: {img_err}")
 
 def generate_screen_issues_pdf(df):
     pdf_buffer = io.BytesIO()
@@ -2225,9 +2247,31 @@ elif menu == "🚀 Pre-Production Testing":
                                 rrn_val = st.text_input("RRN", value=str(get_val('rrn', '')), key=f"rrn_{selected_tc_id}")
                                 stan_val = st.text_input("STAN / UTANO", value=str(get_val('stan_utano', '')), key=f"stan_{selected_tc_id}")
                                 fe_val = st.text_input("FE Status", value=str(get_val('fe_status', '')), key=f"fe_{selected_tc_id}")
+                            
                             with col_u2:
-                                sibs_val = st.text_input("SIBS / CBS Status", value=str(get_val('sibs_status', '')), key=f"sibs_{selected_tc_id}")
-                                receipt_val = st.text_input("Receipt / Output", value=str(get_val('receipt_output', '')), key=f"receipt_{selected_tc_id}")
+                                status_choices = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                
+                                # 1. SIBS / CBS Status Dropdown
+                                curr_sibs = str(get_val(row, 'sibs_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_sibs not in status_choices: 
+                                    curr_sibs = "NOT EXECUTED"
+                                sibs_val = st.selectbox(
+                                    "SIBS / CBS Status", 
+                                    status_choices, 
+                                    index=status_choices.index(curr_sibs), 
+                                    key=f"sibs_{selected_tc_id}"
+                                )
+                                
+                                # 2. Receipt / Output Image Uploader & Preview
+                                uploaded_file = st.file_uploader(
+                                    "Upload Receipt / Output Image", 
+                                    type=["png", "jpg", "jpeg"], 
+                                    key=f"receipt_file_{selected_tc_id}"
+                                )
+                                
+                                existing_receipt_bytes = row.get('receipt_output')
+                                if existing_receipt_bytes:
+                                    render_stored_receipt(existing_receipt_bytes)
                                 
                                 stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
                                 curr_status = str(get_val('overall_status', 'NOT EXECUTED')).upper().strip()
