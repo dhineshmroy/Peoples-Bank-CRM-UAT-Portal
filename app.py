@@ -2484,6 +2484,8 @@ elif menu == "🚀 Pre-Production Testing":
                                             st.error(f"Execution save failed: {e}")
 
                             else: # All Transactions Execution Report
+                                status_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+                                
                                 with c_f1:
                                     acc_ref_ex = st.text_input("Account / Reference No.", value=str(row.get('account_reference_no', '') or ''), key=f"run_exec_accref_{idx}")
                                     amount_val = st.number_input("Amount", value=float(row.get('amount') or 0.0), key=f"run_exec_amt_{idx}")
@@ -2491,22 +2493,59 @@ elif menu == "🚀 Pre-Production Testing":
                                     stan_in = st.text_input("STAN / UTANO", value=str(row.get('stan_utano', '') or ''), key=f"run_exec_stan_{idx}")
                                     before_bal = st.number_input("Before Balance", value=float(row.get('before_balance') or 0.0), key=f"run_exec_bb_{idx}")
                                     after_bal = st.number_input("After Balance", value=float(row.get('after_balance') or 0.0), key=f"run_exec_ab_{idx}")
+                                    
                                 with c_f2:
-                                    fe_in = st.text_input("FE Status", value=str(row.get('fe_status', '') or ''), key=f"run_exec_fe_{idx}")
-                                    switch_in = st.text_input("Switch Status", value=str(row.get('switch_status', '') or ''), key=f"run_exec_switch_{idx}")
-                                    sibs_in = st.text_input("SIBS / CBS Status", value=str(row.get('sibs_status', '') or ''), key=f"run_exec_sibs_{idx}")
-                                    receipt_in = st.text_input("Receipt / Output", value=str(row.get('receipt_output', '') or ''), key=f"run_exec_rec_{idx}")
+                                    # FE Status Dropdown
+                                    curr_fe = str(row.get('fe_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    if curr_fe not in status_opts: curr_fe = "NOT EXECUTED"
+                                    fe_in = st.selectbox("FE Status", status_opts, index=status_opts.index(curr_fe) if curr_fe in status_opts else 0, key=f"run_exec_fe_{idx}")
                                     
-                                    stat_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                    curr_st = stat if stat in stat_opts else "NOT EXECUTED"
-                                    new_st = st.selectbox("Overall Status", stat_opts, index=stat_opts.index(curr_st) if curr_st in stat_opts else 0, key=f"run_exec_st_{idx}")
+                                    # Switch Status Dropdown
+                                    curr_switch = str(row.get('switch_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    if curr_switch not in status_opts: curr_switch = "NOT EXECUTED"
+                                    switch_in = st.selectbox("Switch Status", status_opts, index=status_opts.index(curr_switch) if curr_switch in status_opts else 0, key=f"run_exec_switch_{idx}")
                                     
-                                    exec_date_in = st.text_input("Execution Date", value=str(row.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key=f"run_exec_date_{idx}")
+                                    # SIBS / CBS Status Dropdown
+                                    curr_sibs = str(row.get('sibs_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    if curr_sibs not in status_opts: curr_sibs = "NOT EXECUTED"
+                                    sibs_in = st.selectbox("SIBS / CBS Status", status_opts, index=status_opts.index(curr_sibs) if curr_sibs in status_opts else 0, key=f"run_exec_sibs_{idx}")
+                                    
+                                    # Receipt / Output Image Upload
+                                    uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_exec_rec_file_{idx}")
+                                    
+                                    existing_receipt_bytes = row.get('receipt_output')
+                                    if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
+                                        st.markdown("**Current Stored Receipt:**")
+                                        try:
+                                            st.image(existing_receipt_bytes, caption="Stored Receipt Preview", width=200)
+                                        except Exception:
+                                            pass
+
+                                    # Overall Status Dropdown
+                                    curr_st = str(stat if 'stat' in locals() and stat else row.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    if curr_st not in status_opts: curr_st = "NOT EXECUTED"
+                                    new_st = st.selectbox("Overall Status", status_opts, index=status_opts.index(curr_st) if curr_st in status_opts else 0, key=f"run_exec_st_{idx}")
+                                    
+                                    # Execution Date Picker
+                                    raw_date = row.get('execution_date')
+                                    if isinstance(raw_date, str) and len(raw_date) >= 10:
+                                        try:
+                                            parsed_date = datetime.strptime(raw_date[:10], "%Y-%m-%d").date()
+                                        except ValueError:
+                                            parsed_date = datetime.now().date()
+                                    else:
+                                        parsed_date = datetime.now().date()
+                                    
+                                    exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_exec_date_{idx}")
                                     tester_in = st.text_input("Tester Name", value=str(row.get('tester', st.session_state.get('logged_user', '')) or ''), key=f"run_exec_tester_{idx}")
 
                                 rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_exec_rem_{idx}")
 
                                 if st.form_submit_button(f"💾 Save Transaction Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
+                                    receipt_bytes_to_save = existing_receipt_bytes
+                                    if uploaded_file is not None:
+                                        receipt_bytes_to_save = uploaded_file.getvalue()
+
                                     conn_run = get_db_connection()
                                     if conn_run:
                                         try:
@@ -2517,10 +2556,15 @@ elif menu == "🚀 Pre-Production Testing":
                                                     before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
                                                     sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                                 WHERE tc_id = %s
-                                            """, (acc_ref_ex, amount_val, rrn_in, stan_in, before_bal, after_bal, fe_in, switch_in, sibs_in, receipt_in, new_st, exec_date_in, tester_in, rem_in, row.get('tc_id')))
+                                            """, (
+                                                acc_ref_ex, amount_val, rrn_in, stan_in, before_bal, after_bal, 
+                                                fe_in, switch_in, sibs_in, receipt_bytes_to_save, new_st, 
+                                                str(exec_date_in), tester_in, rem_in, row.get('tc_id')
+                                            ))
                                             conn_run.commit()
                                             cur.close()
                                             conn_run.close()
+                                            st.cache_data.clear()
                                             st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
                                             st.rerun()
                                         except Exception as e:
