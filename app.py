@@ -2174,17 +2174,30 @@ elif menu == "🚀 Pre-Production Testing":
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
             from openpyxl.utils import get_column_letter
+            from openpyxl.drawing.image import Image as OpenPyXLImage
+            from PIL import Image as PILImage
 
-            def generate_styled_uat_excel(mat_df, exec_df):
+            # ReportLab imports for PDF generation
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle as RLTableStyle
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+
+            def generate_styled_uat_excel(mat_df, exec_df, receipt_images=None):
+                """
+                Generates the styled Excel workbook with 4 tabs, embedding receipt images where provided.
+                receipt_images: dict mapping tc_id (or row index) to file paths or PIL Images.
+                """
+                receipt_images = receipt_images or {}
                 wb = Workbook()
                 wb.remove(wb.active) # Remove default sheet
 
                 font_family = "Calibri"
-                header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Dark Navy
-                sub_header_fill = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid") # Accent Blue
-                label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid") # Soft Blue-Grey
+                header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                sub_header_fill = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")
+                label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
                 white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-                zebra_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") # Hash / Light grey
+                zebra_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
                 
                 title_font = Font(name=font_family, size=14, bold=True, color="FFFFFF")
                 bold_font = Font(name=font_family, size=11, bold=True)
@@ -2242,12 +2255,14 @@ elif menu == "🚀 Pre-Production Testing":
                 for r_idx, row in enumerate(mat_df.to_dict(orient="records"), start=9):
                     row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
                     ws1.row_dimensions[r_idx].height = 20
+                    tc_id = row.get("tc_id", "")
+                    
                     vals = [
-                        row.get("tc_id", ""), row.get("card_scheme", ""), row.get("card_type", ""), 
+                        tc_id, row.get("card_scheme", ""), row.get("card_type", ""), 
                         row.get("issuing_bank", ""), row.get("account_type", ""), row.get("withdrawal_amount", 0.0), 
                         row.get("atm_crm_id", ""), row.get("account_reference_no", ""), row.get("rrn", ""), 
                         row.get("stan_utano", ""), row.get("fe_status", "NOT EXECUTED"), row.get("sibs_status", "NOT EXECUTED"), 
-                        "Available" if row.get("receipt_output") else "", row.get("overall_status", "NOT EXECUTED"), 
+                        "", row.get("overall_status", "NOT EXECUTED"), 
                         str(row.get("execution_date", ""))[:10], row.get("remarks", "")
                     ]
                     for c_idx, val in enumerate(vals, start=1):
@@ -2256,6 +2271,18 @@ elif menu == "🚀 Pre-Production Testing":
                         cell.fill = row_fill
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="center" if c_idx > 5 else "left", vertical="center")
+
+                    # Embed receipt image if present for this TC ID
+                    if tc_id in receipt_images:
+                        try:
+                            img_path_or_file = receipt_images[tc_id]
+                            img = OpenPyXLImage(img_path_or_file)
+                            img.width = 80
+                            img.height = 40
+                            ws1.add_image(img, f"M{r_idx}")
+                            ws1.row_dimensions[r_idx].height = 35 # Expand row to accommodate image
+                        except Exception:
+                            ws1.cell(row=r_idx, column=13, value="Attached")
 
                 # ==========================================
                 # TAB 2: Withdrawal Summary
@@ -2361,12 +2388,14 @@ elif menu == "🚀 Pre-Production Testing":
                 for r_idx, row in enumerate(exec_df.to_dict(orient="records"), start=9):
                     row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
                     ws3.row_dimensions[r_idx].height = 20
+                    tc_id = row.get("tc_id", "")
+                    
                     vals = [
-                        row.get("tc_id", ""), row.get("transaction_category", ""), row.get("transaction_description", ""), 
+                        tc_id, row.get("transaction_category", ""), row.get("transaction_description", ""), 
                         row.get("card_type", ""), row.get("account_reference_no", ""), row.get("amount", 0.0), 
                         row.get("rrn", ""), row.get("stan_utano", ""), row.get("before_balance", 0.0), 
                         row.get("after_balance", 0.0), row.get("fe_status", "NOT EXECUTED"), row.get("switch_status", "NOT EXECUTED"), 
-                        row.get("sibs_status", "NOT EXECUTED"), "Available" if row.get("receipt_output") else "", 
+                        row.get("sibs_status", "NOT EXECUTED"), "", 
                         row.get("overall_status", "NOT EXECUTED"), str(row.get("execution_date", ""))[:10], 
                         row.get("tester", ""), row.get("remarks", "")
                     ]
@@ -2377,8 +2406,19 @@ elif menu == "🚀 Pre-Production Testing":
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="center" if c_idx > 4 else "left", vertical="center")
 
+                    if tc_id in receipt_images:
+                        try:
+                            img_path_or_file = receipt_images[tc_id]
+                            img = OpenPyXLImage(img_path_or_file)
+                            img.width = 80
+                            img.height = 40
+                            ws3.add_image(img, f"N{r_idx}")
+                            ws3.row_dimensions[r_idx].height = 35
+                        except Exception:
+                            ws3.cell(row=r_idx, column=14, value="Attached")
+
                 # ==========================================
-                # TAB 4: Summary (Overall UAT Execution Summary)
+                # TAB 4: Summary
                 # ==========================================
                 ws4 = wb.create_sheet(title="Summary")
                 ws4.views.sheetView[0].showGridLines = True
@@ -2437,7 +2477,7 @@ elif menu == "🚀 Pre-Production Testing":
                     cell.border = header_border
 
                 categories = exec_df['transaction_category'].dropna().unique().tolist() if not exec_df.empty else [
-                    "Withdrawal", "Deposit", "Fund Transfer", "Balance Inquiry", "Mini Statement", "PIN Change", "Bill Payment", "Cardless Transaction"
+                    "Withdrawal", "Deposit", "Fund Transfer", "Balance Inquiry", "Bill Payment"
                 ]
 
                 for idx, cat in enumerate(categories, start=16):
@@ -2464,25 +2504,136 @@ elif menu == "🚀 Pre-Production Testing":
                     for col in ws.columns:
                         max_len = 0
                         for cell in col:
-                            if cell.row > 1:
+                            if cell.row > 1 and not cell.comment:
                                 val_str = str(cell.value or '')
                                 if len(val_str) > max_len:
                                     max_len = len(val_str)
                         col_letter = get_column_letter(col[0].column)
-                        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+                        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
 
                 output = io.BytesIO()
                 wb.save(output)
                 output.seek(0)
                 return output.getvalue()
 
-            st.download_button(
-                label="📥 Download Professional UAT Report (.xlsx)",
-                data=generate_styled_uat_excel(mat_df, exec_df),
-                file_name=f"PeoplesBank_CRM_PreProd_UAT_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+
+            def generate_uat_pdf_report(exec_df):
+                """
+                Generates a formal PDF summary report for GRG CRM UAT execution.
+                """
+                pdf_buffer = io.BytesIO()
+                doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+                story = []
+                
+                styles = getSampleStyleSheet()
+                title_style = ParagraphStyle(
+                    'ReportTitle',
+                    parent=styles['Heading1'],
+                    fontName='Helvetica-Bold',
+                    fontSize=16,
+                    textColor=colors.HexColor('#1F4E78'),
+                    alignment=1, # Center
+                    spaceAfter=15
+                )
+                section_style = ParagraphStyle(
+                    'SectionHeading',
+                    parent=styles['Heading2'],
+                    fontName='Helvetica-Bold',
+                    fontSize=12,
+                    textColor=colors.HexColor('#2E75B6'),
+                    spaceBefore=12,
+                    spaceAfter=6
+                )
+                normal_style = ParagraphStyle(
+                    'NormalText',
+                    parent=styles['Normal'],
+                    fontName='Helvetica',
+                    fontSize=10,
+                    textColor=colors.HexColor('#333333')
+                )
+
+                story.append(Paragraph("PEOPLE'S BANK – GRG CRM PRE-PROD UAT REPORT", title_style))
+                story.append(Paragraph(f"<b>Execution Date:</b> {datetime.now().strftime('%d/%m/%Y')} | <b>Environment:</b> Pre-Production", normal_style))
+                story.append(Spacer(1, 15))
+
+                story.append(Paragraph("Execution Overview Summary", section_style))
+                total_tc = len(exec_df)
+                passed = len(exec_df[exec_df['overall_status'].str.upper() == 'PASS']) if not exec_df.empty else 0
+                failed = len(exec_df[exec_df['overall_status'].str.upper() == 'FAIL']) if not exec_df.empty else 0
+                blocked = len(exec_df[exec_df['overall_status'].str.upper() == 'BLOCKED']) if not exec_df.empty else 0
+                
+                summary_data = [
+                    ["Metric", "Count"],
+                    ["Total Test Cases", str(total_tc)],
+                    ["Passed", str(passed)],
+                    ["Failed", str(failed)],
+                    ["Blocked", str(blocked)],
+                ]
+                
+                t = RLTable(summary_data, colWidths=[200, 150])
+                t.setStyle(RLTableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E78')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F2F2F2')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D9D9D9')),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 15))
+
+                story.append(Paragraph("Transaction Log Details", section_style))
+                log_data = [["TC ID", "Category", "Description", "Status"]]
+                if not exec_df.empty:
+                    for _, r in exec_df.iterrows():
+                        log_data.append([
+                            str(r.get("tc_id", "")),
+                            str(r.get("transaction_category", "")),
+                            str(r.get("transaction_description", ""))[:40],
+                            str(r.get("overall_status", "NOT EXECUTED"))
+                        ])
+                
+                t_log = RLTable(log_data, colWidths=[70, 100, 245, 85])
+                t_log.setStyle(RLTableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E75B6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D9D9D9')),
+                ]))
+                story.append(t_log)
+
+                doc.build(story)
+                pdf_buffer.seek(0)
+                return pdf_buffer.getvalue()
+
+            import streamlit as st
+            from datetime import datetime
+
+            # Assuming receipt_images is your dictionary mapping TC IDs to uploaded image files/paths
+            # e.g., receipt_images = {"DEP_01": uploaded_file, "BP_02": uploaded_file2}
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.download_button(
+                    label="📥 Download Professional UAT Report (.xlsx)",
+                    data=generate_styled_uat_excel(mat_df, exec_df, receipt_images),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            with col2:
+                st.download_button(
+                    label="📄 Download PDF Summary Report (.pdf)",
+                    data=generate_uat_pdf_report(exec_df),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Summary_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
         # --- TAB 2: WITHDRAWAL CARD MATRIX ---
         with preprod_tabs[1]:
