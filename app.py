@@ -3070,41 +3070,40 @@ elif menu == "🚀 Pre-Production Testing":
                                     if conn_upd:
                                         try:
                                             cur = conn_upd.cursor()
-                                            # Explicitly update by name matching to avoid index shifting/type errors
                                             cur.execute("""
                                                 UPDATE preprod_all_transactions 
-                                                SET account_reference_no = %(acc_ref)s, 
-                                                    amount = %(amt)s, 
-                                                    rrn = %(rrn)s, 
-                                                    stan_utano = %(stan)s, 
-                                                    before_balance = %(b_bal)s, 
-                                                    after_balance = %(a_bal)s, 
-                                                    fe_status = %(fe)s, 
-                                                    switch_status = %(sw)s, 
-                                                    sibs_status = %(sibs)s, 
-                                                    receipt_output = %(rec)s, 
-                                                    overall_status = %(status)s, 
-                                                    execution_date = %(edate)s, 
-                                                    tester = %(tester)s, 
-                                                    remarks = %(rem)s 
-                                                WHERE tc_id = %(tc_id)s
-                                            """, {
-                                                "acc_ref": acc_ref_ex,
-                                                "amt": float(amount_val),
-                                                "rrn": rrn_val,
-                                                "stan": stan_val,
-                                                "b_bal": float(before_bal),
-                                                "a_bal": float(after_bal),
-                                                "fe": fe_val,
-                                                "sw": switch_val,
-                                                "sibs": sibs_val,
-                                                "rec": receipt_bytes_to_save,
-                                                "status": new_status,
-                                                "edate": str(exec_date_val),
-                                                "tester": tester_val,
-                                                "rem": remarks_val,
-                                                "tc_id": selected_tc_id
-                                            })
+                                                SET account_reference_no = %s, 
+                                                    amount = %s, 
+                                                    rrn = %s, 
+                                                    stan_utano = %s, 
+                                                    before_balance = %s, 
+                                                    after_balance = %s, 
+                                                    fe_status = %s, 
+                                                    switch_status = %s, 
+                                                    sibs_status = %s, 
+                                                    receipt_output = %s, 
+                                                    overall_status = %s, 
+                                                    execution_date = %s, 
+                                                    tester = %s, 
+                                                    remarks = %s 
+                                                WHERE tc_id = %s
+                                            """, (
+                                                str(acc_ref_ex), 
+                                                float(amount_val or 0.0), 
+                                                str(rrn_val), 
+                                                str(stan_val), 
+                                                float(before_bal or 0.0), 
+                                                float(after_bal or 0.0), 
+                                                str(fe_val), 
+                                                str(switch_val), 
+                                                str(sibs_val), 
+                                                receipt_bytes_to_save, 
+                                                str(new_status), 
+                                                str(exec_date_val), 
+                                                str(tester_val), 
+                                                str(remarks_val), 
+                                                str(selected_tc_id)
+                                            ))
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()
@@ -3112,7 +3111,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                             st.rerun()
                                         except Exception as e:
-                                            st.error(f"Update failed: {e}") 
+                                            st.error(f"Update failed: {e}")
     else:
         st.info("No records found in Supabase pre-production tables. Please run your migration script first.")
 
