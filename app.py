@@ -2350,50 +2350,62 @@ elif menu == "🚀 Pre-Production Testing":
                         st.divider()
                         st.markdown("##### 📝 Tester Execution Input")
 
-                        # --- TESTER INPUT FORM ---
-                        with st.form(key=f"interactive_form_{row.get('tc_id')}_{idx}"):
-                            c_f1, c_f2 = st.columns(2)
-                            
-                            if tbl_target == "preprod_withdrawal_matrix":
-                                with c_f1:
-                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row.get('withdrawal_amount') or 0.0), key=f"run_wamt_{idx}")
-                                    atm_id = st.text_input("ATM / CRM ID", value=str(row.get('atm_crm_id', '') or ''), key=f"run_atm_{idx}")
-                                    acc_ref = st.text_input("Account / Reference No.", value=str(row.get('account_reference_no', '') or ''), key=f"run_accref_{idx}")
-                                    rrn_in = st.text_input("RRN", value=str(row.get('rrn', '') or ''), key=f"run_rrn_{idx}")
-                                    stan_in = st.text_input("STAN / UTANO", value=str(row.get('stan_utano', '') or ''), key=f"run_stan_{idx}")
-                                    fe_in = st.text_input("FE Status", value=str(row.get('fe_status', '') or ''), key=f"run_fe_{idx}")
-                                with c_f2:
-                                    sibs_in = st.text_input("SIBS / CBS Status", value=str(row.get('sibs_status', '') or ''), key=f"run_sibs_{idx}")
-                                    receipt_in = st.text_input("Receipt / Output", value=str(row.get('receipt_output', '') or ''), key=f"run_rec_{idx}")
-                                    
-                                    stat_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                    curr_st = stat if stat in stat_opts else "NOT EXECUTED"
-                                    new_st = st.selectbox("Overall Status", stat_opts, index=stat_opts.index(curr_st) if curr_st in stat_opts else 0, key=f"run_st_{idx}")
-                                    
-                                    exec_date_in = st.text_input("Execution Date", value=str(row.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key=f"run_date_{idx}")
-                                    tester_in = st.text_input("Tester Name", value=str(row.get('tester', st.session_state.get('logged_user', '')) or ''), key=f"run_tester_{idx}")
+# --- TESTER INPUT FORM ---
+with st.form(key=f"interactive_form_{row.get('tc_id')}_{idx}"):
+    c_f1, c_f2 = st.columns(2)
+    
+    if tbl_target == "preprod_withdrawal_matrix":
+        with c_f1:
+            withdrawal_amt = st.number_input("Withdrawal Amount", value=float(row.get('withdrawal_amount') or 0.0), key=f"run_wamt_{idx}")
+            atm_id = st.text_input("ATM / CRM ID", value=str(row.get('atm_crm_id', '') or ''), key=f"run_atm_{idx}")
+            acc_ref = st.text_input("Account / Reference No.", value=str(row.get('account_reference_no', '') or ''), key=f"run_accref_{idx}")
+            rrn_in = st.text_input("RRN", value=str(row.get('rrn', '') or ''), key=f"run_rrn_{idx}")
+            stan_in = st.text_input("STAN / UTANO", value=str(row.get('stan_utano', '') or ''), key=f"run_stan_{idx}")
+            fe_in = st.text_input("FE Status", value=str(row.get('fe_status', '') or ''), key=f"run_fe_{idx}")
+        with c_f2:
+            sibs_in = st.text_input("SIBS / CBS Status", value=str(row.get('sibs_status', '') or ''), key=f"run_sibs_{idx}")
+            receipt_in = st.text_input("Receipt / Output", value=str(row.get('receipt_output', '') or ''), key=f"run_rec_{idx}")
+            
+            stat_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
+            curr_st = row.get('overall_status', 'NOT EXECUTED')
+            curr_st = curr_st if curr_st in stat_opts else "NOT EXECUTED"
+            new_st = st.selectbox("Overall Status", stat_opts, index=stat_opts.index(curr_st) if curr_st in stat_opts else 0, key=f"run_st_{idx}")
+            
+            exec_date_in = st.text_input("Execution Date", value=str(row.get('execution_date', datetime.now().strftime('%Y-%m-%d')) or ''), key=f"run_date_{idx}")
+            tester_in = st.text_input("Tester Name", value=str(row.get('tester', st.session_state.get('logged_user', '')) or ''), key=f"run_tester_{idx}")
 
-                                rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_rem_{idx}")
+        rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_rem_{idx}")
 
-                                if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
-                                    conn_run = get_db_connection()
-                                    if conn_run:
-                                        try:
-                                            cur = conn_run.cursor()
-                                            cur.execute("""
-                                                UPDATE preprod_withdrawal_matrix 
-                                                SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
-                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
-                                                    overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
-                                                WHERE tc_id = %s
-                                            """, (withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, fe_in, sibs_in, receipt_in, new_st, exec_date_in, tester_in, rem_in, row.get('tc_id')))
-                                            conn_run.commit()
-                                            cur.close()
-                                            conn_run.close()
-                                            st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Execution save failed: {e}")
+        if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary", disabled=not can_execute):
+            conn_run = get_db_connection()
+            if conn_run:
+                try:
+                    cur = conn_run.cursor()
+                    cur.execute("""
+                        UPDATE preprod_withdrawal_matrix 
+                        SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
+                            rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
+                            overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
+                        WHERE tc_id = %s 
+                          AND account_type = %s 
+                          AND card_type = %s 
+                          AND issuing_bank = %s
+                    """, (
+                        withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, 
+                        fe_in, sibs_in, receipt_in, new_st, exec_date_in, 
+                        tester_in, rem_in, 
+                        row.get('tc_id'), 
+                        row.get('account_type'), 
+                        row.get('card_type'), 
+                        row.get('issuing_bank')
+                    ))
+                    conn_run.commit()
+                    cur.close()
+                    conn_run.close()
+                    st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Execution save failed: {e}")
 
                             else: # All Transactions Execution Report
                                 with c_f1:
