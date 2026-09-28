@@ -2455,14 +2455,13 @@ elif menu == "🚀 Pre-Production Testing":
                 for ws in wb.worksheets:
                     for col in ws.columns:
                         max_len = 0
-                        col_letter = col[0].column_letter
                         for cell in col:
-                            if cell.row > 1:
+                            if cell.row > 1: # Skip big merged title rows for width calculation
                                 val_str = str(cell.value or '')
                                 if len(val_str) > max_len:
                                     max_len = len(val_str)
+                        col_letter = get_column_letter(col[0].column)
                         ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
-
                 output = io.BytesIO()
                 wb.save(output)
                 output.seek(0)
