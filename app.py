@@ -189,12 +189,23 @@ from reportlab.platypus.flowables import HRFlowable
 from reportlab.platypus import Image as RLImage
 
 
-# --- SAFE IMAGE DISPLAY HELPER ---
+# --- GLOBAL HELPER FUNCTIONS ---
+def get_val(row, key, default=""):
+    """Safely extracts a value from a dictionary or pandas row."""
+    if isinstance(row, dict):
+        val = row.get(key, default)
+    else:
+        try:
+            val = row[key] if key in row else default
+        except Exception:
+            val = default
+    return default if val is None or (isinstance(val, float) and pd.isna(val)) else val
+
 def render_stored_receipt(receipt_data):
+    """Safely renders stored BYTEA receipt images."""
     if receipt_data:
         st.markdown("**Current Stored Receipt:**")
         try:
-            # Handle bytearray, bytes, or memoryview from PostgreSQL BYTEA
             if isinstance(receipt_data, memoryview):
                 receipt_bytes = receipt_data.tobytes()
             elif isinstance(receipt_data, (bytes, bytearray)):
@@ -2228,124 +2239,118 @@ elif menu == "🚀 Pre-Production Testing":
                     st.markdown("---")
                     st.markdown("#### 📝 Tester Execution Input Panel")
 
-                    # --- TESTER EDITABLE FORM ---
                     with st.form(key=f"form_db_pre_{selected_tc_id}"):
                         col_u1, col_u2 = st.columns(2)
+                        row = row_data 
+                        status_choices = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
                         
+                        # --- BRANCH 1: WITHDRAWAL MATRIX ---
                         if table_name == "preprod_withdrawal_matrix":
-                            # Safe extraction helpers
-                            def get_val(col, default=""):
-                                val = row_data.get(col)
-                                if pd.isna(val) or val is None:
-                                    return default
-                                return val
-
                             with col_u1:
-                                withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val('withdrawal_amount', 0.0) or 0.0), key=f"amt_{selected_tc_id}")
-                                atm_id = st.text_input("ATM / CRM ID", value=str(get_val('atm_crm_id', '')), key=f"atm_{selected_tc_id}")
-                                acc_ref = st.text_input("Account / Reference No.", value=str(get_val('account_reference_no', '')), key=f"accref_{selected_tc_id}")
-                                rrn_val = st.text_input("RRN", value=str(get_val('rrn', '')), key=f"rrn_{selected_tc_id}")
-                                stan_val = st.text_input("STAN / UTANO", value=str(get_val('stan_utano', '')), key=f"stan_{selected_tc_id}")
-                                fe_val = st.text_input("FE Status", value=str(get_val('fe_status', '')), key=f"fe_{selected_tc_id}")
-                            
+                                withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"wamt_{selected_tc_id}")
+                                atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"atm_{selected_tc_id}")
+                                acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"acc_{selected_tc_id}")
+                                rrn_in = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"rrn_{selected_tc_id}")
+                                stan_in = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"stan_{selected_tc_id}")
+                                
+                                curr_fe = str(get_val(row, 'fe_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_fe not in status_choices: curr_fe = "NOT EXECUTED"
+                                fe_in = st.selectbox("FE Status", status_choices, index=status_choices.index(curr_fe), key=f"fe_{selected_tc_id}")
+
                             with col_u2:
-                                status_choices = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                
-                                # 1. SIBS / CBS Status Dropdown
                                 curr_sibs = str(get_val(row, 'sibs_status', 'NOT EXECUTED')).upper().strip()
-                                if curr_sibs not in status_choices: 
-                                    curr_sibs = "NOT EXECUTED"
-                                sibs_val = st.selectbox(
-                                    "SIBS / CBS Status", 
-                                    status_choices, 
-                                    index=status_choices.index(curr_sibs), 
-                                    key=f"sibs_{selected_tc_id}"
-                                )
+                                if curr_sibs not in status_choices: curr_sibs = "NOT EXECUTED"
+                                sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"sibs_{selected_tc_id}")
                                 
-                                # 2. Receipt / Output Image Uploader & Preview
-                                uploaded_file = st.file_uploader(
-                                    "Upload Receipt / Output Image", 
-                                    type=["png", "jpg", "jpeg"], 
-                                    key=f"receipt_file_{selected_tc_id}"
-                                )
-                                
+                                uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"receipt_{selected_tc_id}")
                                 existing_receipt_bytes = row.get('receipt_output')
                                 if existing_receipt_bytes:
                                     render_stored_receipt(existing_receipt_bytes)
+                                    
+                                curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_st not in status_choices: curr_st = "NOT EXECUTED"
+                                new_st = st.selectbox("Overall Status", status_choices, index=status_choices.index(curr_st), key=f"status_{selected_tc_id}")
                                 
-                                stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                curr_status = str(get_val('overall_status', 'NOT EXECUTED')).upper().strip()
-                                if curr_status not in stat_options: 
-                                    curr_status = "NOT EXECUTED"
-                                new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key=f"status_{selected_tc_id}")
-                                
-                                default_date = datetime.now().strftime('%Y-%m-%d')
-                                exec_date_val = st.text_input("Execution Date", value=str(get_val('execution_date', default_date)), key=f"date_{selected_tc_id}")
-                                tester_val = st.text_input("Tester Name", value=str(get_val('tester', st.session_state.get('logged_user', ''))), key=f"tester_{selected_tc_id}")
+                                raw_date = get_val(row, 'execution_date', datetime.now().date())
+                                parsed_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date() if raw_date and len(str(raw_date)) >= 10 else datetime.now().date()
+                                exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"date_{selected_tc_id}")
+                                tester_in = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"tester_{selected_tc_id}")
 
-                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(get_val('remarks', '')), key=f"remarks_{selected_tc_id}")
+                            rem_in = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"rem_{selected_tc_id}")
 
-                            if st.form_submit_button("💾 Save Withdrawal Execution to Supabase", type="primary"):
-                                conn_upd = get_db_connection()
-                                if conn_upd:
+                            if st.form_submit_button(f"💾 Save Withdrawal Execution ({selected_tc_id})", type="primary"):
+                                receipt_bytes_to_save = existing_receipt_bytes
+                                if uploaded_file is not None:
+                                    receipt_bytes_to_save = uploaded_file.getvalue()
+
+                                conn_run = get_db_connection()
+                                if conn_run:
                                     try:
-                                        cur = conn_upd.cursor()
+                                        cur = conn_run.cursor()
                                         cur.execute("""
                                             UPDATE preprod_withdrawal_matrix 
                                             SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
                                                 rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
                                                 overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
-                                            WHERE tc_id = %s 
-                                            AND account_type = %s 
-                                            AND card_type = %s 
-                                            AND issuing_bank = %s
+                                            WHERE tc_id = %s
                                         """, (
-                                            withdrawal_amt, atm_id, acc_ref, rrn_val, stan_val, 
-                                            fe_val, sibs_val, receipt_val, new_status, exec_date_val, 
-                                            tester_val, remarks_val, 
-                                            selected_tc_id, 
-                                            row_data.get('account_type'), 
-                                            row_data.get('card_type'), 
-                                            row_data.get('issuing_bank')
+                                            withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, 
+                                            fe_in, sibs_val, receipt_bytes_to_save, new_st, str(exec_date_in), 
+                                            tester_in, rem_in, selected_tc_id
                                         ))
-                                        conn_upd.commit()
+                                        conn_run.commit()
                                         cur.close()
-                                        conn_upd.close()
-                                        
-                                        # Clear cache so fresh data is pulled from DB on rerun
+                                        conn_run.close()
                                         st.cache_data.clear()
-                                        
                                         st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
-                                        st.error(f"Update failed: {e}")
+                                        st.error(f"Execution save failed: {e}")
 
-                        else: # All Transactions Execution Report
+                        # --- BRANCH 2: ALL TRANSACTIONS REPORT ---
+                        else: 
                             with col_u1:
-                                acc_ref_ex = st.text_input("Account / Reference No.", value=str(row_data.get('account_reference_no', '') if pd.notna(row_data.get('account_reference_no')) else ''), key="exec_acc_ref")
-                                amount_val = st.number_input("Amount", value=float(row_data.get('amount') or 0.0), key="exec_amt")
-                                rrn_val = st.text_input("RRN", value=str(row_data.get('rrn', '') if pd.notna(row_data.get('rrn')) else ''), key="exec_rrn")
-                                stan_val = st.text_input("STAN / UTANO", value=str(row_data.get('stan_utano', '') if pd.notna(row_data.get('stan_utano')) else ''), key="exec_stan")
-                                before_bal = st.number_input("Before Balance", value=float(row_data.get('before_balance') or 0.0), key="exec_bb")
-                                after_bal = st.number_input("After Balance", value=float(row_data.get('after_balance') or 0.0), key="exec_ab")
+                                acc_ref_ex = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"exec_acc_{selected_tc_id}")
+                                amount_val = st.number_input("Amount", value=float(get_val(row, 'amount', 0.0) or 0.0), key=f"exec_amt_{selected_tc_id}")
+                                rrn_val = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"exec_rrn_{selected_tc_id}")
+                                stan_val = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"exec_stan_{selected_tc_id}")
+                                before_bal = st.number_input("Before Balance", value=float(get_val(row, 'before_balance', 0.0) or 0.0), key=f"exec_bb_{selected_tc_id}")
+                                after_bal = st.number_input("After Balance", value=float(get_val(row, 'after_balance', 0.0) or 0.0), key=f"exec_ab_{selected_tc_id}")
+                                
                             with col_u2:
-                                fe_val = st.text_input("FE Status", value=str(row_data.get('fe_status', '') if pd.notna(row_data.get('fe_status')) else ''), key="exec_fe")
-                                switch_val = st.text_input("Switch Status", value=str(row_data.get('switch_status', '') if pd.notna(row_data.get('switch_status')) else ''), key="exec_switch")
-                                sibs_val = st.text_input("SIBS / CBS Status", value=str(row_data.get('sibs_status', '') if pd.notna(row_data.get('sibs_status')) else ''), key="exec_sibs")
-                                receipt_val = st.text_input("Receipt / Output", value=str(row_data.get('receipt_output', '') if pd.notna(row_data.get('receipt_output')) else ''), key="exec_receipt")
+                                curr_fe = str(get_val(row, 'fe_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_fe not in status_choices: curr_fe = "NOT EXECUTED"
+                                fe_val = st.selectbox("FE Status", status_choices, index=status_choices.index(curr_fe), key=f"exec_fe_{selected_tc_id}")
                                 
-                                stat_options = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
-                                curr_status = str(row_data.get('overall_status', 'NOT EXECUTED')).upper().strip()
-                                if curr_status not in stat_options: 
-                                    curr_status = "NOT EXECUTED"
-                                new_status = st.selectbox("Overall Status", stat_options, index=stat_options.index(curr_status), key="exec_status_sel")
+                                curr_switch = str(get_val(row, 'switch_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_switch not in status_choices: curr_switch = "NOT EXECUTED"
+                                switch_val = st.selectbox("Switch Status", status_choices, index=status_choices.index(curr_switch), key=f"exec_switch_{selected_tc_id}")
                                 
-                                exec_date_val = st.text_input("Execution Date", value=str(row_data.get('execution_date', datetime.now().strftime('%Y-%m-%d')) if pd.notna(row_data.get('execution_date')) else datetime.now().strftime('%Y-%m-%d')), key="exec_date")
-                                tester_val = st.text_input("Tester Name", value=str(row_data.get('tester', st.session_state.get('logged_user', '')) if pd.notna(row_data.get('tester')) else st.session_state.get('logged_user', '')), key="exec_tester")
+                                curr_sibs = str(get_val(row, 'sibs_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_sibs not in status_choices: curr_sibs = "NOT EXECUTED"
+                                sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"exec_sibs_{selected_tc_id}")
+                                
+                                uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"exec_rec_{selected_tc_id}")
+                                existing_receipt_bytes = row.get('receipt_output')
+                                if existing_receipt_bytes:
+                                    render_stored_receipt(existing_receipt_bytes)
 
-                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(row_data.get('remarks', '') if pd.notna(row_data.get('remarks')) else ''), key="exec_remarks")
+                                curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
+                                if curr_st not in status_choices: curr_st = "NOT EXECUTED"
+                                new_status = st.selectbox("Overall Status", status_choices, index=status_choices.index(curr_st), key=f"exec_status_{selected_tc_id}")
+                                
+                                raw_date = get_val(row, 'execution_date', datetime.now().date())
+                                parsed_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date() if raw_date and len(str(raw_date)) >= 10 else datetime.now().date()
+                                exec_date_val = st.date_input("Execution Date", value=parsed_date, key=f"exec_date_{selected_tc_id}")
+                                tester_val = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"exec_tester_{selected_tc_id}")
+
+                            remarks_val = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"exec_rem_{selected_tc_id}")
 
                             if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
+                                receipt_bytes_to_save = existing_receipt_bytes
+                                if uploaded_file is not None:
+                                    receipt_bytes_to_save = uploaded_file.getvalue()
+
                                 conn_upd = get_db_connection()
                                 if conn_upd:
                                     try:
@@ -2356,14 +2361,15 @@ elif menu == "🚀 Pre-Production Testing":
                                                 before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
                                                 sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                             WHERE tc_id = %s
-                                        """, (acc_ref_ex, amount_val, rrn_val, stan_val, before_bal, after_bal, fe_val, switch_val, sibs_val, receipt_val, new_status, exec_date_val, tester_val, remarks_val, selected_tc_id))
+                                        """, (
+                                            acc_ref_ex, amount_val, rrn_val, stan_val, before_bal, after_bal, 
+                                            fe_val, switch_val, sibs_val, receipt_bytes_to_save, new_status, 
+                                            str(exec_date_val), tester_val, remarks_val, selected_tc_id
+                                        ))
                                         conn_upd.commit()
                                         cur.close()
                                         conn_upd.close()
-                                        
-                                        # Clear cache so fresh data is pulled from DB on rerun
                                         st.cache_data.clear()
-                                        
                                         st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
