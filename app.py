@@ -209,6 +209,64 @@ def get_val(row, key, default=""):
             val = default
     return default if val is None or (isinstance(val, float) and pd.isna(val)) else val
 
+import re as _re_sort
+import html as _html_esc
+
+def _natural_key(value):
+    """'WD-2' < 'WD-10'; 'CB_DEP_002' sorts by its numeric parts."""
+    return [int(t) if t.isdigit() else t.lower() for t in _re_sort.split(r'(\d+)', str(value))]
+
+def natural_sort_df(df, col="tc_id"):
+    """Always show / export test cases in Test-Case-ID order (updates never move a row)."""
+    if df is None or df.empty or col not in df.columns:
+        return df
+    keys = [_natural_key(v) for v in df[col]]
+    order = sorted(range(len(df)), key=lambda i: keys[i])
+    return df.iloc[order].reset_index(drop=True)
+
+def prepare_display_df(df):
+    """Table-friendly copy: raw receipt bytes -> readable marker, status columns colour-coded."""
+    d = df.copy()
+    if "receipt_output" in d.columns:
+        d["receipt_output"] = d["receipt_output"].map(
+            lambda v: "📎 Attached" if isinstance(v, (bytes, bytearray, memoryview)) and len(v) > 0 else "—")
+    def _c(v):
+        return {
+            "PASS": "background-color:#dcfce7;color:#166534;font-weight:600",
+            "FAIL": "background-color:#fee2e2;color:#991b1b;font-weight:600",
+            "BLOCKED": "background-color:#fef3c7;color:#92400e;font-weight:600",
+        }.get(str(v).upper().strip(), "")
+    cols = [c for c in ("fe_status", "switch_status", "sibs_status", "overall_status") if c in d.columns]
+    if not cols:
+        return d
+    try:
+        sty = d.style
+        return (sty.map if hasattr(sty, "map") else sty.applymap)(_c, subset=cols)
+    except Exception:
+        return d
+
+def render_master_card(title, fields, description=None, status=None):
+    """Read-only 'master test case' card (replaces the plain st.metric row)."""
+    def _v(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)) or str(x).strip() in ("", "nan", "None"):
+            return "—"
+        return _html_esc.escape(str(x))
+    items = "".join(
+        f'<div class="mc-item"><div class="mc-label">{_html_esc.escape(lbl)}</div><div class="mc-value">{_v(val)}</div></div>'
+        for lbl, val in fields)
+    pill = ""
+    if status:
+        s = str(status).upper().strip()
+        cls = {"PASS": "pass", "FAIL": "fail", "BLOCKED": "blocked"}.get(s, "pending")
+        pill = f'<span class="mc-pill mc-{cls}">{_html_esc.escape(s)}</span>'
+    desc = (f'<div class="mc-desc"><div class="mc-label">Description</div><div class="mc-desc-text">{_v(description)}</div></div>'
+            if description is not None else "")
+    st.markdown(
+        f'<div class="master-card"><div class="mc-head"><div class="mc-head-left"><span class="mc-lock">🔒</span>'
+        f'<div><div class="mc-title">{_html_esc.escape(title)}</div><div class="mc-sub">Read-only · defined in the master test plan</div></div></div>{pill}</div>'
+        f'<div class="mc-grid">{items}</div>{desc}</div>',
+        unsafe_allow_html=True)
+
 def render_stored_receipt(receipt_data):
     """Safely renders stored BYTEA receipt images."""
     if receipt_data:
@@ -1563,6 +1621,28 @@ st.markdown("""
         margin-top: 4px;
         letter-spacing: 0.5px;
     }
+    /* ---------- Master test case card ---------- */
+    .master-card {
+        background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+        border: 1px solid #dbe6f3; border-left: 5px solid #1f4e78; border-radius: 14px;
+        padding: 16px 20px 18px 20px; margin: 6px 0 18px 0; box-shadow: 0 4px 14px rgba(15,52,96,0.06);
+    }
+    .mc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .mc-head-left { display: flex; align-items: center; gap: 12px; }
+    .mc-lock { font-size: 20px; background: #e8f0fa; border-radius: 10px; padding: 6px 8px; }
+    .mc-title { font-size: 15px; font-weight: 700; color: #0b2545; }
+    .mc-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .mc-item { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; }
+    .mc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #64748b; }
+    .mc-value { font-size: 15px; font-weight: 700; color: #1f4e78; margin-top: 4px; word-break: break-word; }
+    .mc-desc { margin-top: 12px; background: #f1f6fc; border-radius: 10px; padding: 10px 14px; border: 1px dashed #b9cde6; }
+    .mc-desc-text { font-size: 14px; color: #0f172a; margin-top: 4px; line-height: 1.45; }
+    .mc-pill { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; padding: 5px 12px; border-radius: 999px; }
+    .mc-pass { background: #dcfce7; color: #166534; }
+    .mc-fail { background: #fee2e2; color: #991b1b; }
+    .mc-blocked { background: #fef3c7; color: #92400e; }
+    .mc-pending { background: #e2e8f0; color: #475569; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2133,6 +2213,9 @@ elif menu == "🚀 Pre-Production Testing":
             mat_df = pd.read_sql("SELECT * FROM preprod_withdrawal_matrix", con=conn_db)
             exec_df = pd.read_sql("SELECT * FROM preprod_all_transactions", con=conn_db)
             conn_db.close()
+            # Postgres returns updated rows last -> always present in Test-Case-ID order
+            mat_df = natural_sort_df(mat_df)
+            exec_df = natural_sort_df(exec_df)
         except Exception as e:
             st.error(f"Database fetch error (Make sure migration script was run): {e}")
 
@@ -2203,337 +2286,377 @@ elif menu == "🚀 Pre-Production Testing":
                 except Exception:
                     return None
 
+
             def _add_receipt_to_sheet(ws, raw, col_letter, row_idx, max_w=170, max_h=100):
-                """Embed the receipt in the cell and size the row to fit. Returns True if embedded."""
+                """Embed the receipt image in a cell. Returns the row height (points) needed, or 0 if no image."""
                 res = _receipt_to_jpeg(raw)
                 if not res:
-                    ws[f"{col_letter}{row_idx}"] = "No receipt"
-                    return False
+                    return 0
                 data, w, h = res
                 scale = min(max_w / w, max_h / h, 1)
                 img = OpenPyXLImage(io.BytesIO(data))
                 img.width, img.height = int(w * scale), int(h * scale)
                 ws.add_image(img, f"{col_letter}{row_idx}")
-                ws.row_dimensions[row_idx].height = max(20, img.height * 0.75 + 6)  # px -> points
-                return True
+                return img.height * 0.75 + 8  # px -> points, plus padding
+
 
             def generate_styled_uat_excel(mat_df, exec_df, receipt_images=None):
                 """
-                Generates the styled Excel workbook with 4 tabs, embedding receipt images where provided.
-                receipt_images: dict mapping tc_id (or row index) to file paths or PIL Images.
+                Professional multi-sheet UAT workbook:
+                  Summary | Withdrawal Summary | Withdrawal - Card Matrix | Execution Report
+                Rows are always in natural Test-Case-ID order, status cells are colour-coded,
+                and uploaded receipts (receipt_output) are embedded as images.
+                (receipt_images is kept only for backward compatibility and is not used.)
                 """
-                receipt_images = receipt_images or {}
+                from openpyxl.chart import BarChart, Reference
+                from openpyxl.worksheet.properties import PageSetupProperties
+
+                mat_df = natural_sort_df(mat_df if mat_df is not None else pd.DataFrame())
+                exec_df = natural_sort_df(exec_df if exec_df is not None else pd.DataFrame())
+
+                # ---------- palette & styles ----------
+                FONT = "Calibri"
+                C_BANNER, C_SUB, C_HEAD = "0B2545", "13315C", "1F4E78"
+                C_GOLD, C_LIGHT, C_BAND = "FFC000", "E8F0FA", "F3F7FC"
+                STATUS = {
+                    "PASS": ("C6EFCE", "006100"),
+                    "FAIL": ("FFC7CE", "9C0006"),
+                    "BLOCKED": ("FFEB9C", "9C5700"),
+                    "NOT EXECUTED": ("E7E6E6", "595959"),
+                }
+                thin = Side(style="thin", color="D0D7E2")
+                border = Border(left=thin, right=thin, top=thin, bottom=thin)
+                head_border = Border(left=thin, right=thin, top=thin, bottom=Side(style="medium", color=C_GOLD))
+                fill = lambda hex_: PatternFill(start_color=hex_, end_color=hex_, fill_type="solid")
+                body_font = Font(name=FONT, size=10, color="222222")
+                center = Alignment(horizontal="center", vertical="center")
+                left = Alignment(horizontal="left", vertical="center", indent=1)
+
+                def _blank(v):
+                    if v is None:
+                        return True
+                    try:
+                        if pd.isna(v):
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                    return str(v).strip().lower() in ("", "nan", "none", "nat")
+
+                def _text(v):
+                    return "" if _blank(v) else str(v).strip()
+
+                def _norm_status(v):
+                    t = _text(v).upper()
+                    return t if t else "NOT EXECUTED"
+
+                def _num(v):
+                    if _blank(v):
+                        return None
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        return _text(v)
+
+                now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+                testers, seen = [], set()
+                for d in (mat_df, exec_df):
+                    if "tester" in d.columns:
+                        for t in d["tester"]:
+                            t = _text(t)
+                            if t and t not in seen:
+                                seen.add(t)
+                                testers.append(t)
+                tester_str = (", ".join(testers[:5]) + (" +more" if len(testers) > 5 else "")) if testers else "Team Channel"
+                meta_line = f"Environment: GRG CRM – Pre-Prod      |      Report Generated: {now_str}      |      Tester(s): {tester_str}"
+
+                def banner(ws, last_col, title, subtitle):
+                    lc = get_column_letter(last_col)
+                    ws.merge_cells(f"A1:{lc}1")
+                    ws["A1"] = title
+                    ws["A1"].font = Font(name=FONT, size=16, bold=True, color="FFFFFF")
+                    ws["A1"].fill = fill(C_BANNER)
+                    ws["A1"].alignment = left
+                    ws.row_dimensions[1].height = 36
+                    ws.merge_cells(f"A2:{lc}2")
+                    ws["A2"] = subtitle
+                    ws["A2"].font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+                    ws["A2"].fill = fill(C_SUB)
+                    ws["A2"].alignment = left
+                    ws.row_dimensions[2].height = 20
+                    ws.merge_cells(f"A3:{lc}3")
+                    ws["A3"] = meta_line
+                    ws["A3"].font = Font(name=FONT, size=10, italic=True, color="1F3864")
+                    ws["A3"].fill = fill(C_LIGHT)
+                    ws["A3"].alignment = left
+                    ws.row_dimensions[3].height = 22
+                    for ci in range(1, last_col + 1):
+                        ws.cell(row=4, column=ci).fill = fill(C_GOLD)
+                    ws.row_dimensions[4].height = 4
+                    ws.sheet_view.showGridLines = False
+                    ws.sheet_view.zoomScale = 90
+
+                def page_setup(ws, title_row=None):
+                    ws.page_setup.orientation = "landscape"
+                    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+                    ws.page_setup.fitToWidth = 1
+                    ws.page_setup.fitToHeight = 0
+                    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+                    ws.print_options.horizontalCentered = True
+                    ws.page_margins.left = ws.page_margins.right = 0.4
+                    if title_row:
+                        ws.print_title_rows = f"{title_row}:{title_row}"
+                    ws.oddFooter.left.text = "People's Bank – GRG CRM Pre-Prod UAT"
+                    ws.oddFooter.right.text = "Page &P of &N"
+
+                # ---------- generic data table ----------
+                def write_table(ws, df, columns, title, subtitle, tab_color):
+                    ncols = len(columns)
+                    lc = get_column_letter(ncols)
+                    banner(ws, ncols, title, subtitle)
+                    HDR = 5
+                    ws.row_dimensions[HDR].height = 34
+                    for ci, (hdr, key, width, kind) in enumerate(columns, start=1):
+                        c = ws.cell(row=HDR, column=ci, value=hdr)
+                        c.font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+                        c.fill = fill(C_HEAD)
+                        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                        c.border = head_border
+                        ws.column_dimensions[get_column_letter(ci)].width = width
+
+                    recs = df.to_dict("records") if df is not None and not df.empty else []
+                    r = HDR + 1
+                    for i, rec in enumerate(recs):
+                        band = C_BAND if i % 2 else "FFFFFF"
+                        row_h = 24
+                        for ci, (hdr, key, width, kind) in enumerate(columns, start=1):
+                            cell = ws.cell(row=r, column=ci)
+                            cell.border = border
+                            cell.fill = fill(band)
+                            cell.font = body_font
+                            cell.alignment = center
+                            v = rec.get(key)
+                            if kind == "id":
+                                cell.value = _text(v)
+                                cell.font = Font(name=FONT, size=10, bold=True, color=C_HEAD)
+                                cell.alignment = left
+                            elif kind == "status":
+                                s = _norm_status(v)
+                                bg, fg = STATUS.get(s, ("EDEDED", "404040"))
+                                cell.value = s
+                                cell.fill = fill(bg)
+                                cell.font = Font(name=FONT, size=10, bold=True, color=fg)
+                            elif kind == "money":
+                                cell.value = _num(v)
+                                cell.number_format = "#,##0.00"
+                                cell.alignment = Alignment(horizontal="right", vertical="center", indent=1)
+                            elif kind == "date":
+                                cell.value = _text(v)[:10]
+                            elif kind == "text":
+                                cell.value = _text(v)
+                                cell.alignment = left
+                            elif kind == "wrap":
+                                t = _text(v)
+                                cell.value = t
+                                cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left", indent=1)
+                                lines = max(1, -(-len(t) // max(int(width * 1.05), 1)))
+                                row_h = max(row_h, 14 * lines + 8)
+                            elif kind == "receipt":
+                                h = _add_receipt_to_sheet(ws, rec.get("receipt_output"), get_column_letter(ci), r)
+                                if h:
+                                    row_h = max(row_h, h)
+                                else:
+                                    cell.value = "—"
+                                    cell.font = Font(name=FONT, size=10, color="A6A6A6")
+                            else:  # "center" / default
+                                cell.value = _text(v)
+                        ws.row_dimensions[r].height = min(row_h, 130)
+                        r += 1
+
+                    if not recs:
+                        ws.merge_cells(f"A{r}:{lc}{r}")
+                        ws[f"A{r}"] = "No records available."
+                        ws[f"A{r}"].font = Font(name=FONT, size=10, italic=True, color="7F7F7F")
+                        ws[f"A{r}"].alignment = center
+                        r += 1
+
+                    ws.auto_filter.ref = f"A{HDR}:{lc}{max(r - 1, HDR)}"
+                    ws.freeze_panes = f"B{HDR + 1}"
+                    ws.sheet_properties.tabColor = tab_color
+                    page_setup(ws, title_row=HDR)
+
+                # ---------- status summary table ----------
+                def status_table(ws, hdr_row, first_title, groups):
+                    heads = [first_title, "Total", "Passed", "Failed", "Blocked", "Not Executed", "Completion %", "Pass Rate %"]
+                    ws.row_dimensions[hdr_row].height = 28
+                    for ci, h in enumerate(heads, start=1):
+                        c = ws.cell(row=hdr_row, column=ci, value=h)
+                        c.font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+                        c.fill = fill(C_HEAD)
+                        c.alignment = Alignment(horizontal="left" if ci == 1 else "center", vertical="center", indent=1 if ci == 1 else 0)
+                        c.border = head_border
+                    r = hdr_row + 1
+                    first = r
+                    num_colors = {3: "006100", 4: "9C0006", 5: "9C5700", 6: "595959"}
+                    for i, (label, sub) in enumerate(groups):
+                        if sub is not None and not sub.empty and "overall_status" in sub.columns:
+                            sts = sub["overall_status"].map(_norm_status)
+                            t = len(sts)
+                            p, f_, b = int((sts == "PASS").sum()), int((sts == "FAIL").sum()), int((sts == "BLOCKED").sum())
+                        else:
+                            t = p = f_ = b = 0
+                        n = t - p - f_ - b
+                        vals = [label, t, p, f_, b, n,
+                                f"=IF(B{r}>0,(C{r}+D{r}+E{r})/B{r},0)",
+                                f"=IF((C{r}+D{r})>0,C{r}/(C{r}+D{r}),0)"]
+                        band = C_BAND if i % 2 else "FFFFFF"
+                        ws.row_dimensions[r].height = 22
+                        for ci, v in enumerate(vals, start=1):
+                            c = ws.cell(row=r, column=ci, value=v)
+                            c.fill = fill(band)
+                            c.border = border
+                            c.font = Font(name=FONT, size=10, bold=(ci == 1 or ci in num_colors), color=num_colors.get(ci, "222222")) if ci != 1 else Font(name=FONT, size=10, bold=True, color=C_HEAD)
+                            c.alignment = left if ci == 1 else center
+                            if ci >= 7:
+                                c.number_format = "0.0%"
+                        r += 1
+                    last = r - 1
+                    ws.row_dimensions[r].height = 24
+                    tot = ["TOTAL"] + [f"=SUM({col}{first}:{col}{last})" for col in "BCDEF"] + [
+                        f"=IF(B{r}>0,(C{r}+D{r}+E{r})/B{r},0)",
+                        f"=IF((C{r}+D{r})>0,C{r}/(C{r}+D{r}),0)"]
+                    for ci, v in enumerate(tot, start=1):
+                        c = ws.cell(row=r, column=ci, value=v)
+                        c.fill = fill(C_LIGHT)
+                        c.font = Font(name=FONT, size=11, bold=True, color=C_BANNER)
+                        c.alignment = left if ci == 1 else center
+                        c.border = Border(left=thin, right=thin, top=Side(style="medium", color=C_HEAD), bottom=Side(style="medium", color=C_HEAD))
+                        if ci >= 7:
+                            c.number_format = "0.0%"
+                    return first, last, r
+
                 wb = Workbook()
-                wb.remove(wb.active) # Remove default sheet
 
-                font_family = "Calibri"
-                header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-                sub_header_fill = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")
-                label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-                white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-                zebra_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-                
-                title_font = Font(name=font_family, size=14, bold=True, color="FFFFFF")
-                bold_font = Font(name=font_family, size=11, bold=True)
-                normal_font = Font(name=font_family, size=11)
-                header_font = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+                # ================= SUMMARY =================
+                ws_sum = wb.active
+                ws_sum.title = "Summary"
+                banner(ws_sum, 8, "UAT EXECUTION SUMMARY", "PEOPLE'S BANK  ·  GRG CRM PRE-PRODUCTION UAT  ·  OVERALL RESULTS")
+                ws_sum.column_dimensions["A"].width = 34
+                for col in "BCDEFGH":
+                    ws_sum.column_dimensions[col].width = 16
 
-                thin_border_side = Side(border_style="thin", color="D9D9D9")
-                thick_border_side = Side(border_style="medium", color="1F4E78")
-                
-                cell_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
-                header_border = Border(left=thin_border_side, right=thin_border_side, top=thick_border_side, bottom=thick_border_side)
+                groups = [("Withdrawal – Card Matrix (Visa / MC / JCB)", mat_df)]
+                if not exec_df.empty and "transaction_category" in exec_df.columns:
+                    for cat in exec_df["transaction_category"].dropna().astype(str).str.strip().unique():
+                        groups.append((cat, exec_df[exec_df["transaction_category"].astype(str).str.strip() == cat]))
+                else:
+                    groups.append(("All Transactions", exec_df))
 
-                # ==========================================
-                # TAB 1: Withdrawal - Card Matrix
-                # ==========================================
-                ws1 = wb.create_sheet(title="Withdrawal - Card Matrix")
-                ws1.views.sheetView[0].showGridLines = True
+                TBL_HDR = 9
+                total_row = TBL_HDR + len(groups) + 1
 
-                ws1.merge_cells("A1:P1")
-                ws1["A1"] = "GRG CRM PRE-PROD – WITHDRAWAL COMPLETION REPORT | VISA / MASTERCARD / JCB"
-                ws1["A1"].font = title_font
-                ws1["A1"].fill = header_fill
-                ws1["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws1.row_dimensions[1].height = 30
+                ws_sum.merge_cells("A5:A6")
+                ws_sum["A5"] = "KEY METRICS"
+                ws_sum["A5"].font = Font(name=FONT, size=11, bold=True, color="FFFFFF")
+                ws_sum["A5"].fill = fill(C_HEAD)
+                ws_sum["A5"].alignment = center
+                ws_sum.row_dimensions[5].height = 20
+                ws_sum.row_dimensions[6].height = 44
+                tiles = [("B", "TOTAL CASES", "1F4E78", "0"), ("C", "PASSED", "006100", "0"), ("D", "FAILED", "9C0006", "0"),
+                         ("E", "BLOCKED", "9C5700", "0"), ("F", "NOT EXECUTED", "595959", "0"),
+                         ("G", "COMPLETION", "1F4E78", "0.0%"), ("H", "PASS RATE", "006100", "0.0%")]
+                for col, label, colr, fmt in tiles:
+                    lab = ws_sum[f"{col}5"]
+                    lab.value = label
+                    lab.font = Font(name=FONT, size=9, bold=True, color="7F7F7F")
+                    lab.fill = fill(C_LIGHT)
+                    lab.alignment = center
+                    lab.border = border
+                    val = ws_sum[f"{col}6"]
+                    val.value = f"={col}{total_row}"
+                    val.font = Font(name=FONT, size=22, bold=True, color=colr)
+                    val.alignment = center
+                    val.number_format = fmt
+                    val.border = border
 
-                meta_w1 = [
-                    ("Environment", "GRG CRM – Pre-Prod"),
-                    ("Transaction Type", "Cash Withdrawal"),
-                    ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
-                    ("Tester", "Team Channel"),
-                    ("Scope", "Visa, Mastercard and JCB card-based withdrawal transactions")
+                ws_sum["A8"] = "Results by Suite / Category"
+                ws_sum["A8"].font = Font(name=FONT, size=12, bold=True, color=C_HEAD)
+                ws_sum.row_dimensions[8].height = 24
+                first, last, tot_r = status_table(ws_sum, TBL_HDR, "Suite / Category", groups)
+
+                ch = BarChart()
+                ch.type = "col"
+                ch.grouping = "stacked"
+                ch.overlap = 100
+                ch.title = "Execution results by suite / category"
+                ch.add_data(Reference(ws_sum, min_col=3, max_col=6, min_row=TBL_HDR, max_row=last), titles_from_data=True)
+                ch.set_categories(Reference(ws_sum, min_col=1, min_row=first, max_row=last))
+                for s, colr in zip(ch.series, ["70AD47", "C00000", "FFC000", "A6A6A6"]):
+                    s.graphicalProperties.solidFill = colr
+                    s.graphicalProperties.line.solidFill = colr
+                ch.height, ch.width = 9, 26
+                ch.legend.position = "b"
+                ws_sum.add_chart(ch, f"A{tot_r + 3}")
+                ws_sum.sheet_properties.tabColor = C_GOLD
+                page_setup(ws_sum)
+
+                # ================= WITHDRAWAL SUMMARY =================
+                ws_ws = wb.create_sheet("Withdrawal Summary")
+                banner(ws_ws, 8, "WITHDRAWAL SUMMARY – VISA / MASTERCARD / JCB", "PEOPLE'S BANK  ·  GRG CRM PRE-PRODUCTION UAT  ·  CASH WITHDRAWAL")
+                ws_ws.column_dimensions["A"].width = 34
+                for col in "BCDEFGH":
+                    ws_ws.column_dimensions[col].width = 16
+                scheme_groups, seen_s = [], set()
+                if not mat_df.empty and "card_scheme" in mat_df.columns:
+                    for s in mat_df["card_scheme"].dropna().astype(str).str.strip().unique():
+                        if s and s.lower() not in seen_s:
+                            seen_s.add(s.lower())
+                            scheme_groups.append((s, mat_df[mat_df["card_scheme"].astype(str).str.strip().str.lower() == s.lower()]))
+                _pref = ["visa", "mastercard", "jcb"]
+                scheme_groups.sort(key=lambda g: _pref.index(g[0].lower()) if g[0].lower() in _pref else 99)
+                if not scheme_groups:
+                    scheme_groups = [(s, None) for s in ("Visa", "Mastercard", "JCB")]
+                status_table(ws_ws, 6, "Card Scheme", scheme_groups)
+                ws_ws.sheet_properties.tabColor = "2E75B6"
+                page_setup(ws_ws)
+
+                # ================= WITHDRAWAL - CARD MATRIX =================
+                w_cols = [
+                    ("TC ID", "tc_id", 13, "id"), ("Card Scheme", "card_scheme", 14, "center"),
+                    ("Card Type", "card_type", 12, "center"), ("Issuing Bank", "issuing_bank", 20, "center"),
+                    ("Account Type", "account_type", 14, "center"), ("Withdrawal Amount", "withdrawal_amount", 18, "money"),
+                    ("GRG CRM ID", "atm_crm_id", 14, "center"), ("Account / Reference No.", "account_reference_no", 24, "center"),
+                    ("RRN", "rrn", 16, "center"), ("STAN / UTANO", "stan_utano", 16, "center"),
+                    ("FE Status", "fe_status", 16, "status"), ("SIBS / CBS Status", "sibs_status", 18, "status"),
+                    ("Receipt / Output", "receipt_output", 28, "receipt"), ("Overall Status", "overall_status", 16, "status"),
+                    ("Execution Date", "execution_date", 15, "date"), ("Tester", "tester", 18, "center"),
+                    ("Remarks", "remarks", 42, "wrap"),
                 ]
-                for idx, (lbl, val) in enumerate(meta_w1, start=2):
-                    ws1[f"A{idx}"] = lbl
-                    ws1[f"A{idx}"].fill = label_fill
-                    ws1[f"A{idx}"].font = bold_font
-                    ws1[f"B{idx}"] = val
-                    ws1[f"B{idx}"].font = normal_font
-                    ws1.row_dimensions[idx].height = 20
+                write_table(wb.create_sheet("Withdrawal - Card Matrix"), mat_df, w_cols,
+                            "GRG CRM PRE-PROD – WITHDRAWAL COMPLETION REPORT  |  VISA / MASTERCARD / JCB",
+                            "PEOPLE'S BANK  ·  Cash Withdrawal  ·  Visa, Mastercard and JCB card-based transactions", "2E75B6")
 
-                w_headers = [
-                    "TC ID", "Card Scheme", "Card Type", "Issuing Bank", "Account Type", 
-                    "Withdrawal Amount", "GRG CRM ID", "Account / Reference No.", "RRN", 
-                    "STAN / UTANO", "FE Status", "SIBS / CBS Status", "Receipt / Output", 
-                    "Overall Status", "Execution Date", "Remarks"
+                # ================= EXECUTION REPORT =================
+                e_cols = [
+                    ("TC ID", "tc_id", 13, "id"), ("Transaction Category", "transaction_category", 20, "center"),
+                    ("Transaction / Test Description", "transaction_description", 44, "wrap"), ("Card Type", "card_type", 12, "center"),
+                    ("Account / Reference No.", "account_reference_no", 24, "center"), ("Amount", "amount", 16, "money"),
+                    ("RRN", "rrn", 16, "center"), ("STAN / UTANO", "stan_utano", 16, "center"),
+                    ("Before Balance", "before_balance", 16, "money"), ("After Balance", "after_balance", 16, "money"),
+                    ("FE Status", "fe_status", 16, "status"), ("Switch Status", "switch_status", 16, "status"),
+                    ("SIBS / CBS Status", "sibs_status", 18, "status"), ("Receipt / Output", "receipt_output", 28, "receipt"),
+                    ("Overall Status", "overall_status", 16, "status"), ("Execution Date", "execution_date", 15, "date"),
+                    ("Tester", "tester", 18, "center"), ("Remarks", "remarks", 42, "wrap"),
                 ]
-                ws1.column_dimensions["M"].width = 26
-                ws1.row_dimensions[8].height = 25
-                for col_idx, h in enumerate(w_headers, start=1):
-                    cell = ws1.cell(row=8, column=col_idx, value=h)
-                    cell.font = header_font
-                    cell.fill = header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                    cell.border = header_border
+                write_table(wb.create_sheet("Execution Report"), exec_df, e_cols,
+                            "GRG CRM PRE-PROD – ALL TRANSACTIONS COMPLETION REPORT",
+                            "PEOPLE'S BANK  ·  All applicable card-based and cardless GRG CRM transactions", "1F4E78")
 
-                for r_idx, row in enumerate(mat_df.to_dict(orient="records"), start=9):
-                    row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
-                    ws1.row_dimensions[r_idx].height = 20
-                    tc_id = row.get("tc_id", "")
-                    
-                    vals = [
-                        tc_id, row.get("card_scheme", ""), row.get("card_type", ""), 
-                        row.get("issuing_bank", ""), row.get("account_type", ""), row.get("withdrawal_amount", 0.0), 
-                        row.get("atm_crm_id", ""), row.get("account_reference_no", ""), row.get("rrn", ""), 
-                        row.get("stan_utano", ""), row.get("fe_status", "NOT EXECUTED"), row.get("sibs_status", "NOT EXECUTED"), 
-                        "", row.get("overall_status", "NOT EXECUTED"), 
-                        str(row.get("execution_date", ""))[:10], row.get("remarks", "")
-                    ]
-                    for c_idx, val in enumerate(vals, start=1):
-                        cell = ws1.cell(row=r_idx, column=c_idx, value=val)
-                        cell.font = normal_font
-                        cell.fill = row_fill
-                        cell.border = cell_border
-                        cell.alignment = Alignment(horizontal="center" if c_idx > 5 else "left", vertical="center")
-
-                    # Embed receipt image (column M)
-                    _add_receipt_to_sheet(ws1, row.get("receipt_output"), "M", r_idx)
-
-                # ==========================================
-                # TAB 2: Withdrawal Summary
-                # ==========================================
-                ws2 = wb.create_sheet(title="Withdrawal Summary")
-                ws2.views.sheetView[0].showGridLines = True
-
-                ws2.merge_cells("A1:F1")
-                ws2["A1"] = "WITHDRAWAL – VISA / MASTERCARD / JCB SUMMARY"
-                ws2["A1"].font = title_font
-                ws2["A1"].fill = header_fill
-                ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws2.row_dimensions[1].height = 30
-
-                sum_headers = ["Card Scheme", "Total", "Passed", "Failed", "Blocked", "Not Executed"]
-                ws2.row_dimensions[3].height = 25
-                for c_idx, h in enumerate(sum_headers, start=1):
-                    cell = ws2.cell(row=3, column=c_idx, value=h)
-                    cell.font = header_font
-                    cell.fill = sub_header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = header_border
-
-                schemes = ["Visa", "Mastercard", "JCB"]
-                for idx, scheme in enumerate(schemes, start=4):
-                    ws2.row_dimensions[idx].height = 20
-                    row_fill = white_fill if idx % 2 != 0 else zebra_fill
-                    
-                    scheme_subset = mat_df[mat_df['card_scheme'].str.lower() == scheme.lower()] if not mat_df.empty else pd.DataFrame()
-                    t_cnt = len(scheme_subset)
-                    p_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'PASS'])
-                    f_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'FAIL'])
-                    b_cnt = len(scheme_subset[scheme_subset['overall_status'].str.upper() == 'BLOCKED'])
-                    n_cnt = t_cnt - (p_cnt + f_cnt + b_cnt)
-
-                    row_data = [scheme, t_cnt, p_cnt, f_cnt, b_cnt, n_cnt]
-                    for c_idx, val in enumerate(row_data, start=1):
-                        cell = ws2.cell(row=idx, column=c_idx, value=val)
-                        cell.font = normal_font
-                        cell.fill = row_fill
-                        cell.border = cell_border
-                        cell.alignment = Alignment(horizontal="left" if c_idx == 1 else "center", vertical="center")
-
-                ws2.row_dimensions[8].height = 22
-                ws2["A8"] = "Overall Withdrawal Completion"
-                ws2["A8"].font = bold_font
-                ws2["A8"].fill = label_fill
-                ws2["B8"] = "=IF(SUM(B4:B6)>0, SUM(C4:E6)/SUM(B4:B6), 0)"
-                ws2["B8"].number_format = '0.0%'
-                ws2["B8"].font = bold_font
-                ws2["B8"].border = cell_border
-
-                ws2.row_dimensions[9].height = 22
-                ws2["A9"] = "Overall Pass Rate"
-                ws2["A9"].font = bold_font
-                ws2["A9"].fill = label_fill
-                ws2["B9"] = "=IF(SUM(C4:D6)>0, SUM(C4:C6)/SUM(C4:D6), 0)"
-                ws2["B9"].number_format = '0.0%'
-                ws2["B9"].font = bold_font
-                ws2["B9"].border = cell_border
-
-                # ==========================================
-                # TAB 3: Execution Report (All Transactions)
-                # ==========================================
-                ws3 = wb.create_sheet(title="Execution Report")
-                ws3.views.sheetView[0].showGridLines = True
-
-                ws3.merge_cells("A1:R1")
-                ws3["A1"] = "GRG CRM PRE-PROD – ALL TRANSACTIONS COMPLETION REPORT"
-                ws3["A1"].font = title_font
-                ws3["A1"].fill = header_fill
-                ws3["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws3.row_dimensions[1].height = 30
-
-                meta_w3 = [
-                    ("Environment", "GRG CRM – Pre-Prod"),
-                    ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
-                    ("Tester", "Team Channel"),
-                    ("UAT Scope", "All applicable card-based and cardless GRG CRM transactions")
-                ]
-                for idx, (lbl, val) in enumerate(meta_w3, start=2):
-                    ws3[f"A{idx}"] = lbl
-                    ws3[f"A{idx}"].fill = label_fill
-                    ws3[f"A{idx}"].font = bold_font
-                    ws3[f"B{idx}"] = val
-                    ws3[f"B{idx}"].font = normal_font
-                    ws3.row_dimensions[idx].height = 20
-
-                exec_headers = [
-                    "TC ID", "Transaction Category", "Transaction / Test Description", "Card Type", 
-                    "Account / Reference No.", "Amount", "RRN", "STAN / UTANO", "Before Balance", 
-                    "After Balance", "FE Status", "Switch Status", "SIBS / CBS Status", 
-                    "Receipt / Output", "Overall Status", "Execution Date", "Tester", "Remarks"
-                ]
-                ws3.column_dimensions["N"].width = 26
-                ws3.row_dimensions[8].height = 25
-                for col_idx, h in enumerate(exec_headers, start=1):
-                    cell = ws3.cell(row=8, column=col_idx, value=h)
-                    cell.font = header_font
-                    cell.fill = header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                    cell.border = header_border
-
-                for r_idx, row in enumerate(exec_df.to_dict(orient="records"), start=9):
-                    row_fill = white_fill if r_idx % 2 != 0 else zebra_fill
-                    ws3.row_dimensions[r_idx].height = 20
-                    tc_id = row.get("tc_id", "")
-                    
-                    vals = [
-                        tc_id, row.get("transaction_category", ""), row.get("transaction_description", ""), 
-                        row.get("card_type", ""), row.get("account_reference_no", ""), row.get("amount", 0.0), 
-                        row.get("rrn", ""), row.get("stan_utano", ""), row.get("before_balance", 0.0), 
-                        row.get("after_balance", 0.0), row.get("fe_status", "NOT EXECUTED"), row.get("switch_status", "NOT EXECUTED"), 
-                        row.get("sibs_status", "NOT EXECUTED"), "", 
-                        row.get("overall_status", "NOT EXECUTED"), str(row.get("execution_date", ""))[:10], 
-                        row.get("tester", ""), row.get("remarks", "")
-                    ]
-                    for c_idx, val in enumerate(vals, start=1):
-                        cell = ws3.cell(row=r_idx, column=c_idx, value=val)
-                        cell.font = normal_font
-                        cell.fill = row_fill
-                        cell.border = cell_border
-                        cell.alignment = Alignment(horizontal="center" if c_idx > 4 else "left", vertical="center")
-
-                    # Embed receipt image (column N)
-                    _add_receipt_to_sheet(ws3, row.get("receipt_output"), "N", r_idx)
-
-                # ==========================================
-                # TAB 4: Summary
-                # ==========================================
-                ws4 = wb.create_sheet(title="Summary")
-                ws4.views.sheetView[0].showGridLines = True
-
-                ws4.merge_cells("A1:F1")
-                ws4["A1"] = "GRG CRM PRE-PROD – UAT EXECUTION SUMMARY"
-                ws4["A1"].font = title_font
-                ws4["A1"].fill = header_fill
-                ws4["A1"].alignment = Alignment(horizontal="center", vertical="center")
-                ws4.row_dimensions[1].height = 30
-
-                total_tc_all = len(exec_df)
-                passed_all = len(exec_df[exec_df['overall_status'].str.upper() == 'PASS']) if not exec_df.empty else 0
-                failed_all = len(exec_df[exec_df['overall_status'].str.upper() == 'FAIL']) if not exec_df.empty else 0
-                blocked_all = len(exec_df[exec_df['overall_status'].str.upper() == 'BLOCKED']) if not exec_df.empty else 0
-                not_exec_all = len(exec_df[exec_df['overall_status'].str.upper() == 'NOT EXECUTED']) if not exec_df.empty else 0
-
-                meta_summary = [
-                    ("Environment", "GRG CRM – Pre-Prod"),
-                    ("Execution Date", datetime.now().strftime("%d/%m/%Y")),
-                    ("Tester", "Team Channel"),
-                    ("Total Test Cases", total_tc_all),
-                    ("Passed", passed_all),
-                    ("Failed", failed_all),
-                    ("Blocked", blocked_all),
-                    ("Not Executed", not_exec_all),
-                    ("Pending", not_exec_all),
-                    ("Completion %", f"=SUM(B5:B7)/B4" if total_tc_all > 0 else 0),
-                    ("Pass Rate %", f"=B5/(B5+B6)" if (passed_all + failed_all) > 0 else 0)
-                ]
-
-                for idx, (lbl, val) in enumerate(meta_summary, start=2):
-                    ws4[f"A{idx}"] = lbl
-                    ws4[f"A{idx}"].fill = label_fill
-                    ws4[f"A{idx}"].font = bold_font
-                    ws4[f"B{idx}"] = val
-                    ws4[f"B{idx}"].font = bold_font if idx >= 10 else normal_font
-                    if idx in [11, 12]:
-                        ws4[f"B{idx}"].number_format = '0.0%'
-                    ws4.row_dimensions[idx].height = 20
-
-                ws4.merge_cells("A14:F14")
-                ws4["A14"] = "Transaction Category Summary"
-                ws4["A14"].font = header_font
-                ws4["A14"].fill = header_fill
-                ws4["A14"].alignment = Alignment(horizontal="left", vertical="center")
-                ws4.row_dimensions[14].height = 22
-
-                cat_headers = ["Category", "Total", "Passed", "Failed", "Blocked", "Not Executed"]
-                ws4.row_dimensions[15].height = 25
-                for c_idx, h in enumerate(cat_headers, start=1):
-                    cell = ws4.cell(row=15, column=c_idx, value=h)
-                    cell.font = header_font
-                    cell.fill = sub_header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = header_border
-
-                categories = exec_df['transaction_category'].dropna().unique().tolist() if not exec_df.empty else [
-                    "Withdrawal", "Deposit", "Fund Transfer", "Balance Inquiry", "Bill Payment"
-                ]
-
-                for idx, cat in enumerate(categories, start=16):
-                    ws4.row_dimensions[idx].height = 20
-                    row_fill = white_fill if idx % 2 != 0 else zebra_fill
-                    
-                    cat_subset = exec_df[exec_df['transaction_category'] == cat] if not exec_df.empty else pd.DataFrame()
-                    t_cnt = len(cat_subset)
-                    p_cnt = len(cat_subset[cat_subset['overall_status'].str.upper() == 'PASS'])
-                    f_cnt = len(cat_subset[cat_subset['overall_status'].str.upper() == 'FAIL'])
-                    b_cnt = len(cat_subset[cat_subset['overall_status'].str.upper() == 'BLOCKED'])
-                    n_cnt = t_cnt - (p_cnt + f_cnt + b_cnt)
-
-                    row_data = [cat, t_cnt, p_cnt, f_cnt, b_cnt, n_cnt]
-                    for c_idx, val in enumerate(row_data, start=1):
-                        cell = ws4.cell(row=idx, column=c_idx, value=val)
-                        cell.font = normal_font
-                        cell.fill = row_fill
-                        cell.border = cell_border
-                        cell.alignment = Alignment(horizontal="left" if c_idx == 1 else "center", vertical="center")
-
-                # --- AUTO-FIT COLUMN WIDTHS ACROSS ALL SHEETS ---
-                for ws in wb.worksheets:
-                    for col in ws.columns:
-                        max_len = 0
-                        for cell in col:
-                            if cell.row > 1 and not cell.comment:
-                                val_str = str(cell.value or '')
-                                if len(val_str) > max_len:
-                                    max_len = len(val_str)
-                        col_letter = get_column_letter(col[0].column)
-                        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
-
+                wb.active = 0
                 output = io.BytesIO()
                 wb.save(output)
                 output.seek(0)
                 return output.getvalue()
+
 
 
             def generate_uat_pdf_report(exec_df):
@@ -2686,7 +2809,7 @@ elif menu == "🚀 Pre-Production Testing":
             sel_scheme = st.selectbox("Filter by Card Scheme", ["All"] + schemes, key="db_pre_mat_scheme")
             
             filtered_mat = mat_df if sel_scheme == "All" else mat_df[mat_df['card_scheme'] == sel_scheme]
-            st.dataframe(filtered_mat, use_container_width=True, hide_index=True)
+            st.dataframe(prepare_display_df(filtered_mat), use_container_width=True, hide_index=True)
 
         # --- TAB 3: EXECUTION REPORT (ALL TRANSACTIONS) ---
         with preprod_tabs[2]:
@@ -2695,7 +2818,7 @@ elif menu == "🚀 Pre-Production Testing":
             sel_cat = st.selectbox("Filter by Category", ["All"] + categories, key="db_pre_exec_cat")
             
             filtered_exec = exec_df if sel_cat == "All" else exec_df[exec_df['transaction_category'] == sel_cat]
-            st.dataframe(filtered_exec, use_container_width=True, hide_index=True)
+            st.dataframe(prepare_display_df(filtered_exec), use_container_width=True, hide_index=True)
 
         # --- TAB 4: UPDATE TEST EXECUTION (TESTER MODE) ---
         with preprod_tabs[3]:
@@ -2721,21 +2844,17 @@ elif menu == "🚀 Pre-Production Testing":
 
                     # --- LOCKED MASTER DEFINITION DISPLAY ---
                     st.markdown("---")
-                    st.markdown("#### 🔒 Master Test Case Details (Default / Read-Only)")
-                    
+                    _cur_status = row_data.get('overall_status') or 'NOT EXECUTED'
                     if table_name == "preprod_withdrawal_matrix":
-                        c1, c2, c3, c4, c5 = st.columns(5)
-                        c1.metric("TC ID", str(row_data.get('tc_id', 'N/A')))
-                        c2.metric("Card Scheme", str(row_data.get('card_scheme', 'N/A')))
-                        c3.metric("Card Type", str(row_data.get('card_type', 'N/A')))
-                        c4.metric("Issuing Bank", str(row_data.get('issuing_bank', 'N/A')))
-                        c5.metric("Account Type", str(row_data.get('account_type', 'N/A')))
+                        render_master_card("Master Test Case Details", [
+                            ("TC ID", row_data.get('tc_id')), ("Card Scheme", row_data.get('card_scheme')),
+                            ("Card Type", row_data.get('card_type')), ("Issuing Bank", row_data.get('issuing_bank')),
+                            ("Account Type", row_data.get('account_type'))], status=_cur_status)
                     else:
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("TC ID", str(row_data.get('tc_id', 'N/A')))
-                        c2.metric("Category", str(row_data.get('transaction_category', 'N/A')))
-                        c3.metric("Card Type", str(row_data.get('card_type', 'N/A')))
-                        c4.markdown(f"**Description:**\n{row_data.get('transaction_description', 'N/A')}")
+                        render_master_card("Master Test Case Details", [
+                            ("TC ID", row_data.get('tc_id')), ("Category", row_data.get('transaction_category')),
+                            ("Card Type", row_data.get('card_type'))],
+                            description=row_data.get('transaction_description'), status=_cur_status)
 
                     st.markdown("---")
                     st.markdown("#### 📝 Tester Execution Input Panel")
@@ -2912,20 +3031,16 @@ elif menu == "🚀 Pre-Production Testing":
                     with st.expander(f"{badge} [{stat}] {row.get('tc_id', 'TC')} — {desc_label}"):
                         
                         # --- LOCKED MASTER DEFINITION ---
-                        st.markdown("##### 🔒 Master Test Case Details (Locked Default)")
                         if tbl_target == "preprod_withdrawal_matrix":
-                            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
-                            mc1.markdown(f"**TC ID:** `{row.get('tc_id', 'N/A')}`")
-                            mc2.markdown(f"**Scheme:** `{row.get('card_scheme', 'N/A')}`")
-                            mc3.markdown(f"**Type:** `{row.get('card_type', 'N/A')}`")
-                            mc4.markdown(f"**Bank:** `{row.get('issuing_bank', 'N/A')}`")
-                            mc5.markdown(f"**Acc Type:** `{row.get('account_type', 'N/A')}`")
+                            render_master_card("Master Test Case Details", [
+                                ("TC ID", row.get('tc_id')), ("Card Scheme", row.get('card_scheme')),
+                                ("Card Type", row.get('card_type')), ("Issuing Bank", row.get('issuing_bank')),
+                                ("Account Type", row.get('account_type'))], status=stat)
                         else:
-                            mc1, mc2, mc3 = st.columns(3)
-                            mc1.markdown(f"**TC ID:** `{row.get('tc_id', 'N/A')}`")
-                            mc2.markdown(f"**Category:** `{row.get('transaction_category', 'N/A')}`")
-                            mc3.markdown(f"**Card Type:** `{row.get('card_type', 'N/A')}`")
-                            st.markdown(f"**Description:** `{row.get('transaction_description', 'N/A')}`")
+                            render_master_card("Master Test Case Details", [
+                                ("TC ID", row.get('tc_id')), ("Category", row.get('transaction_category')),
+                                ("Card Type", row.get('card_type'))],
+                                description=row.get('transaction_description'), status=stat)
 
                         st.divider()
                         st.markdown("##### 📝 Tester Execution Input")
