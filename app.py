@@ -192,6 +192,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.platypus import Image as RLImage
+import io
+from PIL import Image as PILImage
+from openpyxl.drawing.image import Image as OpenPyXLImage
 
 
 # --- GLOBAL HELPER FUNCTIONS ---
@@ -2275,14 +2278,33 @@ elif menu == "🚀 Pre-Production Testing":
                     # Embed receipt image if present for this TC ID
                     if tc_id in receipt_images:
                         try:
-                            img_path_or_file = receipt_images[tc_id]
-                            img = OpenPyXLImage(img_path_or_file)
+                            img_input = receipt_images[tc_id]
+                            
+                            # If the dictionary stores raw bytes from PostgreSQL, wrap them in BytesIO
+                            if isinstance(img_input, bytes):
+                                img_io = io.BytesIO(img_input)
+                                img = OpenPyXLImage(img_io)
+                            elif isinstance(img_input, (str, pathlib.Path)):
+                                img = OpenPyXLImage(str(img_input))
+                            else:
+                                # Fallback if it's already a PIL Image or similar
+                                img_io = io.BytesIO()
+                                img_input.save(img_io, format='PNG')
+                                img_io.seek(0)
+                                img = OpenPyXLImage(img_io)
+
                             img.width = 80
                             img.height = 40
-                            ws1.add_image(img, f"M{r_idx}")
-                            ws1.row_dimensions[r_idx].height = 35 # Expand row to accommodate image
-                        except Exception:
-                            ws1.cell(row=r_idx, column=13, value="Attached")
+                            
+                            # Target cell coordinate (Column M for ws1, Column N for ws3)
+                            target_col_letter = "M" if ws.title == "Withdrawal - Card Matrix" else "N"
+                            ws.add_image(img, f"{target_col_letter}{r_idx}")
+                            
+                            ws.row_dimensions[r_idx].height = 45 # Make row tall enough to view image
+                        except Exception as e:
+                            # If it fails, write a fallback text note in the cell so you know it was attempted
+                            col_num = 13 if ws.title == "Withdrawal - Card Matrix" else 14
+                            ws.cell(row=r_idx, column=col_num, value="[Image Error]")
 
                 # ==========================================
                 # TAB 2: Withdrawal Summary
