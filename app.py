@@ -2186,6 +2186,37 @@ elif menu == "🚀 Pre-Production Testing":
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors
 
+            def _receipt_to_jpeg(raw, max_px=800):
+                """Convert DB bytea (bytes/memoryview) to a compressed JPEG.
+                Returns (jpeg_bytes, width_px, height_px) or None if no valid image."""
+                if raw is None or not isinstance(raw, (bytes, bytearray, memoryview)):
+                    return None  # NULL / NaN from pandas
+                raw = bytes(raw)
+                if not raw:
+                    return None
+                try:
+                    pil = PILImage.open(io.BytesIO(raw)).convert("RGB")
+                    pil.thumbnail((max_px, max_px))
+                    buf = io.BytesIO()
+                    pil.save(buf, format="JPEG", quality=80)
+                    return buf.getvalue(), pil.width, pil.height
+                except Exception:
+                    return None
+
+            def _add_receipt_to_sheet(ws, raw, col_letter, row_idx, max_w=170, max_h=100):
+                """Embed the receipt in the cell and size the row to fit. Returns True if embedded."""
+                res = _receipt_to_jpeg(raw)
+                if not res:
+                    ws[f"{col_letter}{row_idx}"] = "No receipt"
+                    return False
+                data, w, h = res
+                scale = min(max_w / w, max_h / h, 1)
+                img = OpenPyXLImage(io.BytesIO(data))
+                img.width, img.height = int(w * scale), int(h * scale)
+                ws.add_image(img, f"{col_letter}{row_idx}")
+                ws.row_dimensions[row_idx].height = max(20, img.height * 0.75 + 6)  # px -> points
+                return True
+
             def generate_styled_uat_excel(mat_df, exec_df, receipt_images=None):
                 """
                 Generates the styled Excel workbook with 4 tabs, embedding receipt images where provided.
@@ -2247,6 +2278,7 @@ elif menu == "🚀 Pre-Production Testing":
                     "STAN / UTANO", "FE Status", "SIBS / CBS Status", "Receipt / Output", 
                     "Overall Status", "Execution Date", "Remarks"
                 ]
+                ws1.column_dimensions["M"].width = 26
                 ws1.row_dimensions[8].height = 25
                 for col_idx, h in enumerate(w_headers, start=1):
                     cell = ws1.cell(row=8, column=col_idx, value=h)
@@ -2275,36 +2307,8 @@ elif menu == "🚀 Pre-Production Testing":
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="center" if c_idx > 5 else "left", vertical="center")
 
-                    # Embed receipt image if present for this TC ID
-                    if tc_id in receipt_images:
-                        try:
-                            img_input = receipt_images[tc_id]
-                            
-                            # If the dictionary stores raw bytes from PostgreSQL, wrap them in BytesIO
-                            if isinstance(img_input, bytes):
-                                img_io = io.BytesIO(img_input)
-                                img = OpenPyXLImage(img_io)
-                            elif isinstance(img_input, (str, pathlib.Path)):
-                                img = OpenPyXLImage(str(img_input))
-                            else:
-                                # Fallback if it's already a PIL Image or similar
-                                img_io = io.BytesIO()
-                                img_input.save(img_io, format='PNG')
-                                img_io.seek(0)
-                                img = OpenPyXLImage(img_io)
-
-                            img.width = 80
-                            img.height = 40
-                            
-                            # Target cell coordinate (Column M for ws1, Column N for ws3)
-                            target_col_letter = "M" if ws.title == "Withdrawal - Card Matrix" else "N"
-                            ws.add_image(img, f"{target_col_letter}{r_idx}")
-                            
-                            ws.row_dimensions[r_idx].height = 45 # Make row tall enough to view image
-                        except Exception as e:
-                            # If it fails, write a fallback text note in the cell so you know it was attempted
-                            col_num = 13 if ws.title == "Withdrawal - Card Matrix" else 14
-                            ws.cell(row=r_idx, column=col_num, value="[Image Error]")
+                    # Embed receipt image (column M)
+                    _add_receipt_to_sheet(ws1, row.get("receipt_output"), "M", r_idx)
 
                 # ==========================================
                 # TAB 2: Withdrawal Summary
@@ -2399,6 +2403,7 @@ elif menu == "🚀 Pre-Production Testing":
                     "After Balance", "FE Status", "Switch Status", "SIBS / CBS Status", 
                     "Receipt / Output", "Overall Status", "Execution Date", "Tester", "Remarks"
                 ]
+                ws3.column_dimensions["N"].width = 26
                 ws3.row_dimensions[8].height = 25
                 for col_idx, h in enumerate(exec_headers, start=1):
                     cell = ws3.cell(row=8, column=col_idx, value=h)
@@ -2428,16 +2433,8 @@ elif menu == "🚀 Pre-Production Testing":
                         cell.border = cell_border
                         cell.alignment = Alignment(horizontal="center" if c_idx > 4 else "left", vertical="center")
 
-                    if tc_id in receipt_images:
-                        try:
-                            img_path_or_file = receipt_images[tc_id]
-                            img = OpenPyXLImage(img_path_or_file)
-                            img.width = 80
-                            img.height = 40
-                            ws3.add_image(img, f"N{r_idx}")
-                            ws3.row_dimensions[r_idx].height = 35
-                        except Exception:
-                            ws3.cell(row=r_idx, column=14, value="Attached")
+                    # Embed receipt image (column N)
+                    _add_receipt_to_sheet(ws3, row.get("receipt_output"), "N", r_idx)
 
                 # ==========================================
                 # TAB 4: Summary
@@ -2626,6 +2623,23 @@ elif menu == "🚀 Pre-Production Testing":
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D9D9D9')),
                 ]))
                 story.append(t_log)
+
+                # ---- Receipt appendix ----
+                from reportlab.platypus import Image as RLImage, PageBreak
+                receipt_rows = [r for _, r in exec_df.iterrows()
+                                if _receipt_to_jpeg(r.get("receipt_output"))]
+                if receipt_rows:
+                    story.append(PageBreak())
+                    story.append(Paragraph("Receipt / Output Evidence", section_style))
+                    for r in receipt_rows:
+                        data, w, h = _receipt_to_jpeg(r.get("receipt_output"))
+                        scale = min(400 / w, 300 / h, 1)
+                        story.append(Paragraph(
+                            f"<b>{r.get('tc_id','')}</b> - {str(r.get('transaction_description',''))[:60]} "
+                            f"({r.get('overall_status','')})", normal_style))
+                        story.append(Spacer(1, 4))
+                        story.append(RLImage(io.BytesIO(data), width=w * scale, height=h * scale))
+                        story.append(Spacer(1, 12))
 
                 doc.build(story)
                 pdf_buffer.seek(0)
