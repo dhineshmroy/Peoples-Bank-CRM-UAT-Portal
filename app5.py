@@ -358,31 +358,6 @@ def clean_num(v, default=0.0):
         return default
 
 
-def pp_null(v):
-    """Empty / NaN / 'nan' -> None, so blank fields are saved as NULL (safe for text AND numeric columns)."""
-    s_ = clean_str(v)
-    return s_ if s_ else None
-
-
-def pp_amount(v):
-    """Amount as clean text ('700.00'); None when blank. Works for text and numeric columns alike."""
-    s_ = clean_str(v)
-    if not s_:
-        return None
-    try:
-        return f"{float(s_):.2f}"
-    except ValueError:
-        return s_
-
-
-def pp_receipt(v):
-    """Receipt bytes, or None when nothing was uploaded (never NaN / '' / empty bytes)."""
-    if isinstance(v, (bytes, bytearray, memoryview)):
-        b = bytes(v)
-        return b if b else None
-    return None
-
-
 def pp_derive_rrn(utano, current_rrn=""):
     """RRN = STAN/UTANO without its first 6 digits.
     e.g. 260922002657463900 -> 002657463900"""
@@ -2843,142 +2818,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 📱 MOBILE / TABLET RESPONSIVE LAYER (desktop look unchanged)
-# ---------------------------------------------------------
-st.markdown("""
-<style>
-/* =====================================================================
-   MOBILE / TABLET RESPONSIVE LAYER  (desktop look is not changed)
-   ===================================================================== */
-
-/* ---------- Tablets & phones (<= 900px) ---------- */
-@media (max-width: 900px) {
-    html, body, .stApp, [data-testid="stAppViewContainer"] { max-width: 100vw; overflow-x: hidden !important; }
-
-    .block-container, [data-testid="stMainBlockContainer"] {
-        padding: 1rem 0.8rem calc(3rem + env(safe-area-inset-bottom)) 0.8rem !important;
-        max-width: 100% !important;
-    }
-
-    /* Headings */
-    h1 { font-size: 1.45rem !important; line-height: 1.25 !important; }
-    h2 { font-size: 1.25rem !important; }
-    h3 { font-size: 1.1rem !important; }
-    h4 { font-size: 1.02rem !important; }
-
-    /* Tabs: one swipeable row instead of overflowing the screen */
-    [data-baseweb="tab-list"] {
-        overflow-x: auto !important; flex-wrap: nowrap !important; gap: 2px !important;
-        -webkit-overflow-scrolling: touch; scrollbar-width: none;
-    }
-    [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
-    button[data-baseweb="tab"] { flex: 0 0 auto !important; padding: 10px 14px !important; white-space: nowrap !important; }
-    button[data-baseweb="tab"] p { font-size: 0.95rem !important; }
-
-    /* Touch-friendly buttons */
-    .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button,
-    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {
-        width: 100% !important; min-height: 3rem !important; height: auto !important;
-        padding: 0.6rem 0.9rem !important; white-space: normal !important; line-height: 1.25 !important;
-    }
-
-    /* Inputs: 16px stops iOS zooming in, taller for thumbs */
-    input, textarea, select { font-size: 16px !important; }
-    [data-baseweb="input"] input, [data-baseweb="base-input"] input { min-height: 46px !important; }
-    [data-baseweb="select"] > div { min-height: 46px !important; }
-    [data-baseweb="textarea"] textarea { min-height: 96px !important; }
-    [data-testid="stNumberInput"] button { min-width: 42px !important; }
-    [data-testid="stWidgetLabel"] p { font-size: 0.95rem !important; font-weight: 600 !important; }
-
-    /* Radio groups (e.g. "Select Test Suite", filters) wrap instead of overflowing */
-    [role="radiogroup"] { flex-wrap: wrap !important; gap: 6px 16px !important; }
-    [data-testid="stRadio"] label { padding: 4px 0 !important; min-height: 40px; align-items: center; }
-    [data-testid="stCheckbox"] label { min-height: 40px; align-items: center; }
-
-    /* Sidebar navigation: bigger tap targets */
-    [data-testid="stSidebar"] [role="radiogroup"] label { padding: 10px 8px !important; border-radius: 10px; min-height: 44px; }
-    [data-testid="stSidebar"] .stButton > button { min-height: 2.8rem !important; }
-
-    /* Expanders (test cases, defects): long titles wrap, roomy tap area */
-    [data-testid="stExpander"] summary { padding: 0.75rem 0.8rem !important; }
-    [data-testid="stExpander"] summary p { white-space: normal !important; word-break: break-word !important; line-height: 1.35 !important; }
-    [data-testid="stExpander"] details > div, [data-testid="stExpanderDetails"] { padding: 0.4rem 0.6rem 0.8rem 0.6rem !important; }
-    [data-testid="stForm"] { padding: 0.8rem !important; border-radius: 12px !important; }
-
-    /* Long values (UTANO, RRN, references) never push the page sideways */
-    code, [data-testid="stMarkdownContainer"] { word-break: break-word; overflow-wrap: anywhere; }
-    code { white-space: pre-wrap !important; }
-    [data-testid="stAlert"] { word-break: break-word; }
-    [data-testid="stMarkdownContainer"] table { display: block; overflow-x: auto; max-width: 100%; }
-
-    /* Tables, charts, images */
-    [data-testid="stDataFrame"], .stDataFrame { max-width: 100% !important; overflow-x: auto !important; }
-    [data-testid="stPlotlyChart"], [data-testid="stArrowVegaLiteChart"], [data-testid="stVegaLiteChart"] { max-width: 100% !important; overflow-x: auto; }
-    img { max-width: 100% !important; height: auto; }
-
-    /* Date pickers / drop-downs never wider than the screen */
-    [data-baseweb="popover"] { max-width: 96vw !important; }
-    [data-baseweb="calendar"] { max-width: 96vw !important; }
-
-    /* File uploader: stacked, thumb friendly */
-    [data-testid="stFileUploaderDropzone"] { flex-direction: column !important; align-items: stretch !important; gap: 0.6rem !important; padding: 0.9rem !important; }
-    [data-testid="stFileUploaderDropzone"] button { width: 100% !important; }
-    [data-testid="stFileUploaderDropzoneInstructions"] { text-align: center; }
-    [data-testid="stFileUploaderDropzoneInstructions"] span, [data-testid="stFileUploaderDropzoneInstructions"] small { font-size: 0.8rem !important; }
-
-    /* Existing custom cards */
-    .execution-card, .lock-card-available, .lock-card-inuse { padding: 14px !important; border-radius: 12px !important; }
-    .master-card { padding: 12px 12px 14px 12px !important; border-radius: 12px !important; }
-    .custom-footer { padding: 14px 8px !important; font-size: 0.8rem !important; }
-
-    /* Columns: stacked full-width (keeps the existing behaviour) ... */
-    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
-    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
-    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-        flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important;
-    }
-
-    /* ... except KPI metric-card rows: two cards per row, last odd card full width */
-    [data-testid="stHorizontalBlock"]:has(.metric-card) { flex-direction: row !important; }
-    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="stColumn"],
-    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="column"] {
-        flex: 1 1 calc(50% - 0.5rem) !important; width: calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important;
-    }
-    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="stColumn"]:last-child:nth-child(odd),
-    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="column"]:last-child:nth-child(odd) {
-        flex-basis: 100% !important; width: 100% !important; min-width: 100% !important;
-    }
-    .metric-card { padding: 14px 8px !important; }
-    .metric-num { font-size: 26px !important; }
-    .metric-label { font-size: 10px !important; margin-top: 6px !important; }
-
-    /* Master test-case card: two tiles per row, header wraps */
-    .mc-head { flex-wrap: wrap; gap: 8px; }
-    .mc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
-    .mc-item { padding: 8px 10px !important; }
-    .mc-value { font-size: 14px !important; }
-}
-
-/* ---------- Small phones (<= 480px) ---------- */
-@media (max-width: 480px) {
-    .block-container, [data-testid="stMainBlockContainer"] { padding-left: 0.55rem !important; padding-right: 0.55rem !important; }
-    h1 { font-size: 1.28rem !important; }
-    .metric-num { font-size: 23px !important; }
-    .mc-grid { grid-template-columns: 1fr !important; }
-    .mc-title { font-size: 14px !important; }
-    button[data-baseweb="tab"] { padding: 9px 11px !important; }
-    [data-testid="stExpander"] summary p { font-size: 0.92rem !important; }
-}
-
-/* ---------- Landscape phones: reclaim vertical space ---------- */
-@media (max-height: 480px) and (orientation: landscape) {
-    .block-container, [data-testid="stMainBlockContainer"] { padding-top: 0.5rem !important; }
-    [data-testid="stHeader"] { height: 2.4rem !important; }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------------------------------------------------
 # SESSION STATE & DB DATA
 # ---------------------------------------------------------
 if 'authenticated_role' not in st.session_state:
@@ -4177,7 +4016,7 @@ elif menu == "🚀 Pre-Production Testing":
                                 sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"sibs_{selected_tc_id}")
                                 
                                 uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"receipt_{selected_tc_id}")
-                                existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                existing_receipt_bytes = row.get('receipt_output')
                                 if existing_receipt_bytes:
                                     render_stored_receipt(existing_receipt_bytes)
                                     
@@ -4209,9 +4048,9 @@ elif menu == "🚀 Pre-Production Testing":
                                                 overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                             WHERE tc_id = %s
                                         """, (
-                                            pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                            fe_in, sibs_val, pp_receipt(receipt_bytes_to_save), new_st, str(exec_date_in), 
-                                            pp_null(tester_in), pp_null(rem_in), selected_tc_id
+                                            withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, 
+                                            fe_in, sibs_val, receipt_bytes_to_save, new_st, str(exec_date_in), 
+                                            tester_in, rem_in, selected_tc_id
                                         ))
                                         sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row_data), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                         conn_run.commit()
@@ -4247,7 +4086,7 @@ elif menu == "🚀 Pre-Production Testing":
                                 sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"exec_sibs_{selected_tc_id}")
                                 
                                 uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"exec_rec_{selected_tc_id}")
-                                existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                existing_receipt_bytes = row.get('receipt_output')
                                 if existing_receipt_bytes:
                                     render_stored_receipt(existing_receipt_bytes)
 
@@ -4279,9 +4118,9 @@ elif menu == "🚀 Pre-Production Testing":
                                                 sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                             WHERE tc_id = %s
                                         """, (
-                                            pp_null(acc_ref_ex), pp_amount(amount_val), pp_null(rrn_val), pp_null(stan_val), pp_amount(before_bal), pp_amount(after_bal), 
-                                            fe_val, switch_val, sibs_val, pp_receipt(receipt_bytes_to_save), new_status, 
-                                            str(exec_date_val), pp_null(tester_val), pp_null(remarks_val), selected_tc_id
+                                            acc_ref_ex, amount_val, rrn_val, stan_val, before_bal, after_bal, 
+                                            fe_val, switch_val, sibs_val, receipt_bytes_to_save, new_status, 
+                                            str(exec_date_val), tester_val, remarks_val, selected_tc_id
                                         ))
                                         sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row_data), new_status, tester_val, stan_val, rrn_val, exec_date_val, remarks_val)
                                         conn_upd.commit()
@@ -4386,7 +4225,7 @@ elif menu == "🚀 Pre-Production Testing":
                                     # Receipt / Output Image Upload
                                     uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_rec_file_{row.get('tc_id')}_{idx}")
                                     
-                                    existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                    existing_receipt_bytes = row.get('receipt_output')
                                     if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
                                         st.markdown("**Current Stored Receipt:**")
                                         try:
@@ -4432,17 +4271,17 @@ elif menu == "🚀 Pre-Production Testing":
                                                     rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
                                                     overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                                 WHERE tc_id = %s 
-                                                AND account_type IS NOT DISTINCT FROM %s 
-                                                AND card_type IS NOT DISTINCT FROM %s 
-                                                AND issuing_bank IS NOT DISTINCT FROM %s
+                                                AND account_type = %s 
+                                                AND card_type = %s 
+                                                AND issuing_bank = %s
                                             """, (
-                                                pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                                fe_in, sibs_in, pp_receipt(receipt_bytes_to_save), new_st, str(exec_date_in), 
-                                                pp_null(tester_in), pp_null(rem_in), 
+                                                withdrawal_amt, atm_id, acc_ref, rrn_in, stan_in, 
+                                                fe_in, sibs_in, receipt_bytes_to_save, new_st, str(exec_date_in), 
+                                                tester_in, rem_in, 
                                                 row.get('tc_id'), 
-                                                pp_null(row.get('account_type')), 
-                                                pp_null(row.get('card_type')), 
-                                                pp_null(row.get('issuing_bank'))
+                                                row.get('account_type'), 
+                                                row.get('card_type'), 
+                                                row.get('issuing_bank')
                                             ))
                                             sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                             conn_run.commit()
@@ -4485,7 +4324,7 @@ elif menu == "🚀 Pre-Production Testing":
                                     # Receipt / Output Image Upload
                                     uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_exec_rec_file_{idx}")
                                     
-                                    existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                    existing_receipt_bytes = row.get('receipt_output')
                                     if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
                                         st.markdown("**Current Stored Receipt:**")
                                         try:
@@ -4541,20 +4380,20 @@ elif menu == "🚀 Pre-Production Testing":
                                                     remarks = %s 
                                                 WHERE tc_id = %s
                                             """, (
-                                                pp_null(acc_ref_ex), 
-                                                pp_amount(amount_val), 
-                                                pp_null(rrn_in), 
-                                                pp_null(stan_in), 
-                                                pp_amount(before_bal), 
-                                                pp_amount(after_bal), 
+                                                str(acc_ref_ex), 
+                                                float(amount_val or 0.0), 
+                                                str(rrn_in), 
+                                                str(stan_in), 
+                                                float(before_bal or 0.0), 
+                                                float(after_bal or 0.0), 
                                                 str(fe_in), 
                                                 str(switch_in), 
                                                 str(sibs_in), 
-                                                pp_receipt(receipt_bytes_to_save), 
+                                                receipt_bytes_to_save, 
                                                 str(new_st), 
                                                 str(exec_date_in), 
-                                                pp_null(tester_in), 
-                                                pp_null(rem_in), 
+                                                str(tester_in), 
+                                                str(rem_in), 
                                                 str(row.get('tc_id', ''))
                                             ))
                                             sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)

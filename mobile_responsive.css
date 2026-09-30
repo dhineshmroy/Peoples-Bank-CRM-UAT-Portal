@@ -1,0 +1,128 @@
+/* =====================================================================
+   MOBILE / TABLET RESPONSIVE LAYER  (desktop look is not changed)
+   ===================================================================== */
+
+/* ---------- Tablets & phones (<= 900px) ---------- */
+@media (max-width: 900px) {
+    html, body, .stApp, [data-testid="stAppViewContainer"] { max-width: 100vw; overflow-x: hidden !important; }
+
+    .block-container, [data-testid="stMainBlockContainer"] {
+        padding: 1rem 0.8rem calc(3rem + env(safe-area-inset-bottom)) 0.8rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Headings */
+    h1 { font-size: 1.45rem !important; line-height: 1.25 !important; }
+    h2 { font-size: 1.25rem !important; }
+    h3 { font-size: 1.1rem !important; }
+    h4 { font-size: 1.02rem !important; }
+
+    /* Tabs: one swipeable row instead of overflowing the screen */
+    [data-baseweb="tab-list"] {
+        overflow-x: auto !important; flex-wrap: nowrap !important; gap: 2px !important;
+        -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
+    button[data-baseweb="tab"] { flex: 0 0 auto !important; padding: 10px 14px !important; white-space: nowrap !important; }
+    button[data-baseweb="tab"] p { font-size: 0.95rem !important; }
+
+    /* Touch-friendly buttons */
+    .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {
+        width: 100% !important; min-height: 3rem !important; height: auto !important;
+        padding: 0.6rem 0.9rem !important; white-space: normal !important; line-height: 1.25 !important;
+    }
+
+    /* Inputs: 16px stops iOS zooming in, taller for thumbs */
+    input, textarea, select { font-size: 16px !important; }
+    [data-baseweb="input"] input, [data-baseweb="base-input"] input { min-height: 46px !important; }
+    [data-baseweb="select"] > div { min-height: 46px !important; }
+    [data-baseweb="textarea"] textarea { min-height: 96px !important; }
+    [data-testid="stNumberInput"] button { min-width: 42px !important; }
+    [data-testid="stWidgetLabel"] p { font-size: 0.95rem !important; font-weight: 600 !important; }
+
+    /* Radio groups (e.g. "Select Test Suite", filters) wrap instead of overflowing */
+    [role="radiogroup"] { flex-wrap: wrap !important; gap: 6px 16px !important; }
+    [data-testid="stRadio"] label { padding: 4px 0 !important; min-height: 40px; align-items: center; }
+    [data-testid="stCheckbox"] label { min-height: 40px; align-items: center; }
+
+    /* Sidebar navigation: bigger tap targets */
+    [data-testid="stSidebar"] [role="radiogroup"] label { padding: 10px 8px !important; border-radius: 10px; min-height: 44px; }
+    [data-testid="stSidebar"] .stButton > button { min-height: 2.8rem !important; }
+
+    /* Expanders (test cases, defects): long titles wrap, roomy tap area */
+    [data-testid="stExpander"] summary { padding: 0.75rem 0.8rem !important; }
+    [data-testid="stExpander"] summary p { white-space: normal !important; word-break: break-word !important; line-height: 1.35 !important; }
+    [data-testid="stExpander"] details > div, [data-testid="stExpanderDetails"] { padding: 0.4rem 0.6rem 0.8rem 0.6rem !important; }
+    [data-testid="stForm"] { padding: 0.8rem !important; border-radius: 12px !important; }
+
+    /* Long values (UTANO, RRN, references) never push the page sideways */
+    code, [data-testid="stMarkdownContainer"] { word-break: break-word; overflow-wrap: anywhere; }
+    code { white-space: pre-wrap !important; }
+    [data-testid="stAlert"] { word-break: break-word; }
+    [data-testid="stMarkdownContainer"] table { display: block; overflow-x: auto; max-width: 100%; }
+
+    /* Tables, charts, images */
+    [data-testid="stDataFrame"], .stDataFrame { max-width: 100% !important; overflow-x: auto !important; }
+    [data-testid="stPlotlyChart"], [data-testid="stArrowVegaLiteChart"], [data-testid="stVegaLiteChart"] { max-width: 100% !important; overflow-x: auto; }
+    img { max-width: 100% !important; height: auto; }
+
+    /* Date pickers / drop-downs never wider than the screen */
+    [data-baseweb="popover"] { max-width: 96vw !important; }
+    [data-baseweb="calendar"] { max-width: 96vw !important; }
+
+    /* File uploader: stacked, thumb friendly */
+    [data-testid="stFileUploaderDropzone"] { flex-direction: column !important; align-items: stretch !important; gap: 0.6rem !important; padding: 0.9rem !important; }
+    [data-testid="stFileUploaderDropzone"] button { width: 100% !important; }
+    [data-testid="stFileUploaderDropzoneInstructions"] { text-align: center; }
+    [data-testid="stFileUploaderDropzoneInstructions"] span, [data-testid="stFileUploaderDropzoneInstructions"] small { font-size: 0.8rem !important; }
+
+    /* Existing custom cards */
+    .execution-card, .lock-card-available, .lock-card-inuse { padding: 14px !important; border-radius: 12px !important; }
+    .master-card { padding: 12px 12px 14px 12px !important; border-radius: 12px !important; }
+    .custom-footer { padding: 14px 8px !important; font-size: 0.8rem !important; }
+
+    /* Columns: stacked full-width (keeps the existing behaviour) ... */
+    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important;
+    }
+
+    /* ... except KPI metric-card rows: two cards per row, last odd card full width */
+    [data-testid="stHorizontalBlock"]:has(.metric-card) { flex-direction: row !important; }
+    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="column"] {
+        flex: 1 1 calc(50% - 0.5rem) !important; width: calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important;
+    }
+    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="stColumn"]:last-child:nth-child(odd),
+    [data-testid="stHorizontalBlock"]:has(.metric-card) > [data-testid="column"]:last-child:nth-child(odd) {
+        flex-basis: 100% !important; width: 100% !important; min-width: 100% !important;
+    }
+    .metric-card { padding: 14px 8px !important; }
+    .metric-num { font-size: 26px !important; }
+    .metric-label { font-size: 10px !important; margin-top: 6px !important; }
+
+    /* Master test-case card: two tiles per row, header wraps */
+    .mc-head { flex-wrap: wrap; gap: 8px; }
+    .mc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+    .mc-item { padding: 8px 10px !important; }
+    .mc-value { font-size: 14px !important; }
+}
+
+/* ---------- Small phones (<= 480px) ---------- */
+@media (max-width: 480px) {
+    .block-container, [data-testid="stMainBlockContainer"] { padding-left: 0.55rem !important; padding-right: 0.55rem !important; }
+    h1 { font-size: 1.28rem !important; }
+    .metric-num { font-size: 23px !important; }
+    .mc-grid { grid-template-columns: 1fr !important; }
+    .mc-title { font-size: 14px !important; }
+    button[data-baseweb="tab"] { padding: 9px 11px !important; }
+    [data-testid="stExpander"] summary p { font-size: 0.92rem !important; }
+}
+
+/* ---------- Landscape phones: reclaim vertical space ---------- */
+@media (max-height: 480px) and (orientation: landscape) {
+    .block-container, [data-testid="stMainBlockContainer"] { padding-top: 0.5rem !important; }
+    [data-testid="stHeader"] { height: 2.4rem !important; }
+}
