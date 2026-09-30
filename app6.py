@@ -358,33 +358,6 @@ def clean_num(v, default=0.0):
         return default
 
 
-from datetime import timezone as _tz, timedelta as _td
-try:
-    from zoneinfo import ZoneInfo as _ZoneInfo
-    _PP_TZ = _ZoneInfo("Asia/Colombo")          # Sri Lanka time, whatever timezone the server runs in
-except Exception:
-    _PP_TZ = _tz(_td(hours=5, minutes=30))      # fixed UTC+05:30 fallback (Sri Lanka has no DST)
-
-
-def pp_now():
-    """Current date & time in Sri Lanka."""
-    return datetime.now(_PP_TZ)
-
-
-def pp_stamp(picked_date=None):
-    """'YYYY-MM-DD HH:MM:SS' = chosen date (default today) + the exact current time.
-    Used on every save so the transaction time is recorded automatically."""
-    now = pp_now()
-    d = picked_date if picked_date else now.date()
-    return f"{d} {now:%H:%M:%S}"
-
-
-def pp_time_part(v):
-    """'2026-09-30 14:22:10' -> '14:22:10' ('' for old date-only records)."""
-    t = clean_str(v)
-    return t[11:19] if len(t) > 10 else ""
-
-
 def pp_null(v):
     """Empty / NaN / 'nan' -> None, so blank fields are saved as NULL (safe for text AND numeric columns)."""
     s_ = clean_str(v)
@@ -447,7 +420,7 @@ def sort_preprod(df, mode):
     if df is None or df.empty:
         return df
     if mode.startswith("Execution date"):
-        ts = pd.to_datetime(df["execution_date"].map(clean_str).str[:19], errors="coerce", format="mixed")
+        ts = pd.to_datetime(df["execution_date"].astype(str).str[:10], errors="coerce")
         asc = "oldest" in mode
         return df.assign(_ts=ts).sort_values("_ts", ascending=asc, na_position="last", kind="stable").drop(columns="_ts").reset_index(drop=True)
     if mode.startswith("Overall status"):
@@ -610,7 +583,7 @@ def resolve_preprod_defect(defect):
         return False, "No database connection."
     try:
         cur = conn.cursor()
-        today = pp_stamp()
+        today = date.today().strftime("%Y-%m-%d")
         note = f"Defect {defect['defect_ref']} retested PASS on {today}"
         suite = defect["suite"]
         if suite == "MATRIX":
@@ -727,7 +700,7 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     left = Alignment(horizontal="left", vertical="center", indent=1)
     recs = _pp_prepare_defect_records(df)
-    now_str = pp_now().strftime("%d/%m/%Y %H:%M")
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     meta_line = f"Environment: GRG CRM – Pre-Prod      |      Report Generated: {now_str}      |      Scope: {scope_label}      |      Defects: {len(recs)}"
 
     def banner(ws, last_col, title, subtitle):
@@ -863,7 +836,7 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
         ("Defect Description", "defect_desc", 46, "wrap"), ("Steps to Reproduce", "steps_to_reproduce", 46, "wrap"),
         ("Expected Result", "expected_result", 40, "wrap"), ("Detected By (Tester)", "detected_by", 20, "center"),
         ("UTANO / Bill Number", "utano", 24, "center"), ("RRN", "rrn", 16, "center"),
-        ("Executed / Logged Date", "execution_date", 16, "date"), ("Executed / Logged Time", "execution_date", 13, "time"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
+        ("Executed / Logged Date", "execution_date", 17, "date"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
     ]
     ncols = len(cols)
     lc = get_column_letter(ncols)
@@ -898,8 +871,6 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
                 c.font = Font(name=FONT, size=10, bold=True, color=fg)
             elif kind == "date":
                 c.value = v[:10]
-            elif kind == "time":
-                c.value = pp_time_part(v)
             elif kind == "wrap":
                 c.value = v
                 c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left", indent=1)
@@ -971,7 +942,7 @@ def generate_preprod_defect_pdf(df, scope_label="All defects"):
     STAT_FG = {"OPEN": "#9C0006", "IN PROGRESS": "#9C5700", "READY FOR RETEST": "#1F4E78", "REJECTED": "#595959", "PASS": "#006100"}
 
     story = [Paragraph("PRE-PRODUCTION DEFECT TRACKING REPORT", st_title),
-             Paragraph(f"People's Bank · GRG CRM Pre-Production UAT &nbsp;|&nbsp; Generated {pp_now().strftime('%d/%m/%Y %H:%M')} "
+             Paragraph(f"People's Bank · GRG CRM Pre-Production UAT &nbsp;|&nbsp; Generated {datetime.now().strftime('%d/%m/%Y %H:%M')} "
                        f"&nbsp;|&nbsp; Scope: {_xml_escape(scope_label)}", st_meta),
              Spacer(1, 10)]
 
@@ -1004,7 +975,7 @@ def generate_preprod_defect_pdf(df, scope_label="All defects"):
         kv = Table([
             [P("SEVERITY", st_lbl), P(r.get("severity")), P("PRIORITY", st_lbl), P(r.get("priority")), P("ASSIGNED TO", st_lbl), P(r.get("assigned_to"))],
             [P("DETECTED BY", st_lbl), P(r.get("detected_by")), P("UTANO / BILL NO.", st_lbl), P(r.get("utano")), P("RRN", st_lbl), P(r.get("rrn"))],
-            [P("TEST SUITE", st_lbl), P(r.get("suite_label")), P("SOURCE", st_lbl), P(r.get("source_label")), P("EXECUTED / LOGGED", st_lbl), P(clean_str(r.get("execution_date"))[:19])],
+            [P("TEST SUITE", st_lbl), P(r.get("suite_label")), P("SOURCE", st_lbl), P(r.get("source_label")), P("EXECUTED / LOGGED", st_lbl), P(clean_str(r.get("execution_date"))[:10])],
         ], colWidths=[58, 100, 74, W - 58 - 100 - 74 - 74 - 105, 74, 105])
         kv.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, rl_colors.HexColor("#D0D7E2")),
                                 ("INNERGRID", (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#E2E8F0")),
@@ -1100,7 +1071,7 @@ def render_preprod_defect_tracker(can_execute):
                                     ON CONFLICT (suite, case_key) DO NOTHING
                                 """, (m_ref.strip(), m_ref.strip(), m_module.strip() or "General", m_sev, m_pri, m_assign, m_status,
                                       m_desc.strip(), m_steps.strip(), m_exp.strip(), m_by.strip(), m_utano.strip(),
-                                      pp_derive_rrn(m_utano), pp_stamp()))
+                                      pp_derive_rrn(m_utano), datetime.now().strftime("%Y-%m-%d")))
                                 created = cur.rowcount
                                 conn.commit()
                                 cur.close()
@@ -1160,7 +1131,7 @@ def render_preprod_defect_tracker(can_execute):
         "Assigned To": view["assigned_to"].map(clean_str), "Defect Status": view["defect_status"].map(clean_str),
         "Defect Description": view["defect_desc"].map(clean_str), "Detected By": view["detected_by"].map(clean_str),
         "UTANO / Bill No.": view["utano"].map(clean_str), "RRN": view["rrn"].map(clean_str),
-        "Executed Date & Time": view["execution_date"].map(lambda v: clean_str(v)[:19]),
+        "Executed Date": view["execution_date"].map(lambda v: clean_str(v)[:10]),
     })
     st.dataframe(overview, use_container_width=True, hide_index=True, height=340)
 
@@ -1308,7 +1279,7 @@ def render_preprod_screen_issues(can_execute):
                                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                 """, (next_id, module.strip() or "General_UI", icon.strip(), screen.strip() or "Main Screen", lang, itype,
                                       sev, desc.strip(), notes.strip(), st.session_state.get("logged_user", "Tester"),
-                                      pp_now().strftime("%Y-%m-%d %H:%M:%S"), imgs[0], imgs[1], imgs[2]))
+                                      datetime.now().strftime("%Y-%m-%d %H:%M:%S"), imgs[0], imgs[1], imgs[2]))
                                 conn.commit()
                                 cur.close()
                                 conn.close()
@@ -3673,7 +3644,7 @@ elif menu == "🚀 Pre-Production Testing":
                     except (TypeError, ValueError):
                         return _text(v)
 
-                now_str = pp_now().strftime("%d/%m/%Y %H:%M")
+                now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
                 testers, seen = [], set()
                 for d in (mat_df, exec_df):
                     if "tester" in d.columns:
@@ -3767,8 +3738,6 @@ elif menu == "🚀 Pre-Production Testing":
                                 cell.alignment = Alignment(horizontal="right", vertical="center", indent=1)
                             elif kind == "date":
                                 cell.value = _text(v)[:10]
-                            elif kind == "time":
-                                cell.value = pp_time_part(v)
                             elif kind == "text":
                                 cell.value = _text(v)
                                 cell.alignment = left
@@ -3946,7 +3915,7 @@ elif menu == "🚀 Pre-Production Testing":
                     ("RRN", "rrn", 16, "center"), ("STAN / UTANO", "stan_utano", 16, "center"),
                     ("FE Status", "fe_status", 16, "status"), ("SIBS / CBS Status", "sibs_status", 18, "status"),
                     ("Receipt / Output", "receipt_output", 28, "receipt"), ("Overall Status", "overall_status", 16, "status"),
-                    ("Execution Date", "execution_date", 14, "date"), ("Execution Time", "execution_date", 13, "time"), ("Tester", "tester", 18, "center"),
+                    ("Execution Date", "execution_date", 15, "date"), ("Tester", "tester", 18, "center"),
                     ("Remarks", "remarks", 42, "wrap"),
                 ]
                 write_table(wb.create_sheet("Withdrawal - Card Matrix"), mat_df, w_cols,
@@ -3962,7 +3931,7 @@ elif menu == "🚀 Pre-Production Testing":
                     ("Before Balance", "before_balance", 16, "money"), ("After Balance", "after_balance", 16, "money"),
                     ("FE Status", "fe_status", 16, "status"), ("Switch Status", "switch_status", 16, "status"),
                     ("SIBS / CBS Status", "sibs_status", 18, "status"), ("Receipt / Output", "receipt_output", 28, "receipt"),
-                    ("Overall Status", "overall_status", 16, "status"), ("Execution Date", "execution_date", 14, "date"), ("Execution Time", "execution_date", 13, "time"),
+                    ("Overall Status", "overall_status", 16, "status"), ("Execution Date", "execution_date", 15, "date"),
                     ("Tester", "tester", 18, "center"), ("Remarks", "remarks", 42, "wrap"),
                 ]
                 write_table(wb.create_sheet("Execution Report"), exec_df, e_cols,
@@ -4013,7 +3982,7 @@ elif menu == "🚀 Pre-Production Testing":
                 )
 
                 story.append(Paragraph("PEOPLE'S BANK – GRG CRM PRE-PROD UAT REPORT", title_style))
-                story.append(Paragraph(f"<b>Report Generated:</b> {pp_now().strftime('%d/%m/%Y %H:%M')} | <b>Environment:</b> Pre-Production", normal_style))
+                story.append(Paragraph(f"<b>Execution Date:</b> {datetime.now().strftime('%d/%m/%Y')} | <b>Environment:</b> Pre-Production", normal_style))
                 story.append(Spacer(1, 15))
 
                 story.append(Paragraph("Execution Overview Summary", section_style))
@@ -4044,18 +4013,17 @@ elif menu == "🚀 Pre-Production Testing":
                 story.append(Spacer(1, 15))
 
                 story.append(Paragraph("Transaction Log Details", section_style))
-                log_data = [["TC ID", "Category", "Description", "Status", "Executed (Date & Time)"]]
+                log_data = [["TC ID", "Category", "Description", "Status"]]
                 if not exec_df.empty:
                     for _, r in exec_df.iterrows():
                         log_data.append([
                             str(r.get("tc_id", "")),
                             str(r.get("transaction_category", "")),
-                            str(r.get("transaction_description", ""))[:34],
-                            str(r.get("overall_status", "NOT EXECUTED")),
-                            clean_str(r.get("execution_date"))[:19] or "—"
+                            str(r.get("transaction_description", ""))[:40],
+                            str(r.get("overall_status", "NOT EXECUTED"))
                         ])
                 
-                t_log = RLTable(log_data, colWidths=[58, 88, 160, 68, 106])
+                t_log = RLTable(log_data, colWidths=[70, 100, 245, 85])
                 t_log.setStyle(RLTableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E75B6')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -4219,14 +4187,13 @@ elif menu == "🚀 Pre-Production Testing":
                                 
                                 raw_date = get_val(row, 'execution_date', datetime.now().date())
                                 parsed_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date() if raw_date and len(str(raw_date)) >= 10 else datetime.now().date()
-                                exec_date_in = st.date_input("Execution Date (time is added automatically)", value=pp_now().date(), key=f"date_{selected_tc_id}")
+                                exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"date_{selected_tc_id}")
                                 tester_in = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"tester_{selected_tc_id}")
 
                             rem_in = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"rem_{selected_tc_id}")
 
                             if st.form_submit_button(f"💾 Save Withdrawal Execution ({selected_tc_id})", type="primary"):
                                 rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
-                                _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
                                 receipt_bytes_to_save = existing_receipt_bytes
                                 if uploaded_file is not None:
                                     receipt_bytes_to_save = uploaded_file.getvalue()
@@ -4243,10 +4210,10 @@ elif menu == "🚀 Pre-Production Testing":
                                             WHERE tc_id = %s
                                         """, (
                                             pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                            fe_in, sibs_val, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
+                                            fe_in, sibs_val, pp_receipt(receipt_bytes_to_save), new_st, str(exec_date_in), 
                                             pp_null(tester_in), pp_null(rem_in), selected_tc_id
                                         ))
-                                        sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row_data), new_st, tester_in, stan_in, rrn_in, _exec_stamp, rem_in)
+                                        sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row_data), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                         conn_run.commit()
                                         cur.close()
                                         conn_run.close()
@@ -4290,14 +4257,13 @@ elif menu == "🚀 Pre-Production Testing":
                                 
                                 raw_date = get_val(row, 'execution_date', datetime.now().date())
                                 parsed_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date() if raw_date and len(str(raw_date)) >= 10 else datetime.now().date()
-                                exec_date_val = st.date_input("Execution Date (time is added automatically)", value=pp_now().date(), key=f"exec_date_{selected_tc_id}")
+                                exec_date_val = st.date_input("Execution Date", value=parsed_date, key=f"exec_date_{selected_tc_id}")
                                 tester_val = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"exec_tester_{selected_tc_id}")
 
                             remarks_val = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"exec_rem_{selected_tc_id}")
 
                             if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
                                 rrn_val = pp_derive_rrn(stan_val, rrn_val)   # RRN = STAN/UTANO without its first 6 digits
-                                _exec_stamp = pp_stamp(exec_date_val)   # exact save time, added automatically
                                 receipt_bytes_to_save = existing_receipt_bytes
                                 if uploaded_file is not None:
                                     receipt_bytes_to_save = uploaded_file.getvalue()
@@ -4315,9 +4281,9 @@ elif menu == "🚀 Pre-Production Testing":
                                         """, (
                                             pp_null(acc_ref_ex), pp_amount(amount_val), pp_null(rrn_val), pp_null(stan_val), pp_amount(before_bal), pp_amount(after_bal), 
                                             fe_val, switch_val, sibs_val, pp_receipt(receipt_bytes_to_save), new_status, 
-                                            _exec_stamp, pp_null(tester_val), pp_null(remarks_val), selected_tc_id
+                                            str(exec_date_val), pp_null(tester_val), pp_null(remarks_val), selected_tc_id
                                         ))
-                                        sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row_data), new_status, tester_val, stan_val, rrn_val, _exec_stamp, remarks_val)
+                                        sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row_data), new_status, tester_val, stan_val, rrn_val, exec_date_val, remarks_val)
                                         conn_upd.commit()
                                         cur.close()
                                         conn_upd.close()
@@ -4443,7 +4409,7 @@ elif menu == "🚀 Pre-Production Testing":
                                     else:
                                         parsed_date = datetime.now().date()
                                     
-                                    exec_date_in = st.date_input("Execution Date (time is added automatically)", value=pp_now().date(), key=f"run_date_{row.get('tc_id')}_{idx}")
+                                    exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_date_{row.get('tc_id')}_{idx}")
                                     tester_in = st.text_input("Tester Name", value=str(get_val(row, 'tester', st.session_state.get('logged_user', ''))), key=f"run_tester_{row.get('tc_id')}_{idx}")
 
                                 # Unique key for remarks text area
@@ -4452,7 +4418,6 @@ elif menu == "🚀 Pre-Production Testing":
                                 # --- FORM SUBMISSION & DB SAVE ---
                                 if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary"):
                                     rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
-                                    _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
                                     receipt_bytes_to_save = existing_receipt_bytes
                                     if uploaded_file is not None:
                                         receipt_bytes_to_save = uploaded_file.getvalue()
@@ -4472,14 +4437,14 @@ elif menu == "🚀 Pre-Production Testing":
                                                 AND issuing_bank IS NOT DISTINCT FROM %s
                                             """, (
                                                 pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                                fe_in, sibs_in, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
+                                                fe_in, sibs_in, pp_receipt(receipt_bytes_to_save), new_st, str(exec_date_in), 
                                                 pp_null(tester_in), pp_null(rem_in), 
                                                 row.get('tc_id'), 
                                                 pp_null(row.get('account_type')), 
                                                 pp_null(row.get('card_type')), 
                                                 pp_null(row.get('issuing_bank'))
                                             ))
-                                            sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row), new_st, tester_in, stan_in, rrn_in, _exec_stamp, rem_in)
+                                            sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                             conn_run.commit()
                                             cur.close()
                                             conn_run.close()
@@ -4543,14 +4508,13 @@ elif menu == "🚀 Pre-Production Testing":
                                     else:
                                         parsed_date = datetime.now().date()
                                     
-                                    exec_date_in = st.date_input("Execution Date (time is added automatically)", value=pp_now().date(), key=f"run_exec_date_{idx}")
+                                    exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_exec_date_{idx}")
                                     tester_in = st.text_input("Tester Name", value=(clean_str(row.get('tester')) or clean_str(st.session_state.get('logged_user', ''))), key=f"run_exec_tester_{idx}")
 
                                 rem_in = st.text_area("Remarks / Failure Notes", value=(clean_str(row.get('remarks')) or ''), key=f"run_exec_rem_{idx}")
 
                                 if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
                                     rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
-                                    _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
                                     receipt_bytes_to_save = existing_receipt_bytes
                                     if uploaded_file is not None:
                                         receipt_bytes_to_save = uploaded_file.getvalue()
@@ -4588,12 +4552,12 @@ elif menu == "🚀 Pre-Production Testing":
                                                 str(sibs_in), 
                                                 pp_receipt(receipt_bytes_to_save), 
                                                 str(new_st), 
-                                                _exec_stamp, 
+                                                str(exec_date_in), 
                                                 pp_null(tester_in), 
                                                 pp_null(rem_in), 
                                                 str(row.get('tc_id', ''))
                                             ))
-                                            sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row), new_st, tester_in, stan_in, rrn_in, _exec_stamp, rem_in)
+                                            sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()

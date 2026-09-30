@@ -17,7 +17,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.types import LargeBinary, Text
 
-DB_URL = os.environ["SUPABASE_DB_URL"]
+DB_URL = "postgresql://postgres.mxqtzquofvbcewtaowxo:Dhineshmelroy@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+engine = create_engine(DB_URL)
 EXCEL_PATH = "CRM_Pre-Prod_Withdrawal_Visa_Mastercard_JCB_Completion_Report.xlsx"
 REPLACE_TABLES = True
 
@@ -25,16 +26,29 @@ engine = create_engine(DB_URL)
 if_exists = "replace" if REPLACE_TABLES else "append"
 
 
+def clean_value(v):
+    """Any cell -> clean text, or None (NULL) for blanks / NaN / 'nan'."""
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)                      # 700.0 -> '700', 260922002657 -> no '.0' / no e+11
+    text = str(v).strip()
+    return None if text.lower() in ("", "nan", "none", "nat", "<na>") else text
+
+
 def to_text_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Everything -> clean text; NaN / 'nan' / '' -> NULL; receipt_output left empty."""
+    """Everything -> clean text; blanks -> NULL; receipt_output left empty (filled later by the app)."""
     out = pd.DataFrame(index=df.index)
     for col in df.columns:
         if col == "receipt_output":
-            out[col] = None
-            continue
-        ser = df[col].astype("object").where(df[col].notna(), None)
-        ser = ser.map(lambda v: None if v is None else str(v).strip())
-        out[col] = ser.map(lambda v: None if v is None or v.lower() in ("", "nan", "none", "nat") else v)
+            out[col] = pd.Series([None] * len(df), index=df.index, dtype="object")
+        else:
+            out[col] = pd.Series([clean_value(v) for v in df[col].tolist()], index=df.index, dtype="object")
     return out
 
 
