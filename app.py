@@ -207,7 +207,16 @@ def get_val(row, key, default=""):
             val = row[key] if key in row else default
         except Exception:
             val = default
-    return default if val is None or (isinstance(val, float) and pd.isna(val)) else val
+    if val is None:
+        return default
+    try:
+        if pd.isna(val):          # NaN / NaT / pd.NA
+            return default
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, str) and val.strip().lower() in ("nan", "none", "nat"):
+        return default
+    return val
 
 import re as _re_sort
 import html as _html_esc
@@ -266,6 +275,1108 @@ def render_master_card(title, fields, description=None, status=None):
         f'<div><div class="mc-title">{_html_esc.escape(title)}</div><div class="mc-sub">Read-only · defined in the master test plan</div></div></div>{pill}</div>'
         f'<div class="mc-grid">{items}</div>{desc}</div>',
         unsafe_allow_html=True)
+
+# =========================================================
+# PRE-PRODUCTION: shared helpers (clean values, RRN, dates, downloads)
+# =========================================================
+from xml.sax.saxutils import escape as _xml_escape
+
+PP_SEVERITY = ["Low", "Medium", "High", "Critical"]
+PP_PRIORITY = ["Low", "Moderate", "High"]
+PP_ASSIGNED = ["Development Team", "Tester", "Vendor (GRG)", "Network Team"]
+PP_DEFECT_STATUS = ["Open", "In Progress", "Ready for Retest", "Rejected", "PASS"]
+PP_NOT_SET = "— Select —"
+
+PP_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS public.preprod_defects (
+    id               SERIAL PRIMARY KEY,
+    defect_ref       VARCHAR(100) NOT NULL,          -- Defect / Reference ID (TC ID or manual ID)
+    suite            VARCHAR(20)  NOT NULL,          -- MATRIX | EXEC | MANUAL
+    case_key         VARCHAR(400) NOT NULL,          -- uniquely identifies the failed test row
+    source           VARCHAR(10)  DEFAULT 'AUTO',    -- AUTO (failed test) | MANUAL
+    module_name      VARCHAR(255),                   -- Module / Feature Name
+    card_scheme      VARCHAR(50),
+    card_type        VARCHAR(50),
+    issuing_bank     VARCHAR(100),
+    account_type     VARCHAR(50),
+    severity         VARCHAR(50),
+    priority         VARCHAR(50),
+    assigned_to      VARCHAR(100),
+    defect_status    VARCHAR(50)  DEFAULT 'Open',
+    defect_desc      TEXT,
+    steps_to_reproduce TEXT,
+    expected_result  TEXT,
+    detected_by      VARCHAR(100),                   -- Detected By (Tester)
+    utano            VARCHAR(100),                   -- UTANO / Bill Number
+    rrn              VARCHAR(50),
+    execution_date   VARCHAR(50),
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT preprod_defects_case_uk UNIQUE (suite, case_key)
+);
+CREATE INDEX IF NOT EXISTS idx_preprod_defects_status ON public.preprod_defects (defect_status);
+CREATE INDEX IF NOT EXISTS idx_preprod_defects_date   ON public.preprod_defects (execution_date);
+
+CREATE TABLE IF NOT EXISTS public.preprod_screen_issues (
+    issue_id        VARCHAR(100) NOT NULL,
+    module_name     VARCHAR(255) NOT NULL,
+    screen_name     VARCHAR(255),
+    language        VARCHAR(50),
+    issue_type      VARCHAR(100),
+    severity        VARCHAR(50),
+    description     TEXT,
+    developer_notes TEXT,
+    detected_by     VARCHAR(100),
+    created_at      VARCHAR(50),
+    image1          TEXT,
+    image2          TEXT,
+    image3          TEXT,
+    icon_number     VARCHAR(50),
+    PRIMARY KEY (issue_id, module_name)
+);
+"""
+
+
+def clean_str(v):
+    """None / NaN / 'nan' / 'None' -> '' so un-executed test cases show truly empty fields."""
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none", "nat", "<na>") else s
+
+
+def clean_num(v, default=0.0):
+    try:
+        f = float(v)
+        return default if pd.isna(f) else f
+    except (TypeError, ValueError):
+        return default
+
+
+def pp_derive_rrn(utano, current_rrn=""):
+    """RRN = STAN/UTANO without its first 6 digits.
+    e.g. 260922002657463900 -> 002657463900"""
+    u = clean_str(utano).replace(" ", "")
+    return u[6:] if len(u) > 6 else clean_str(current_rrn)
+
+
+# ---------- date search (specific date / date range) ----------
+def date_filter_controls(key, label="Executed Date"):
+    c1, c2 = st.columns([1, 2])
+    mode = c1.selectbox(f"📅 {label}", ["All dates", "Specific date", "Date range"], key=f"{key}_mode")
+    spec = {"mode": mode, "start": None, "end": None}
+    if mode == "Specific date":
+        d = c2.date_input("Select date", value=date.today(), key=f"{key}_one")
+        spec["start"] = spec["end"] = d
+    elif mode == "Date range":
+        rng = c2.date_input("Select start and end date", value=(date.today(), date.today()), key=f"{key}_rng")
+        if isinstance(rng, (tuple, list)) and len(rng) == 2:
+            spec["start"], spec["end"] = rng
+        else:
+            c2.caption("Pick both a start date and an end date.")
+    return spec
+
+
+def filter_by_date(df, col, spec):
+    if df is None or df.empty or spec["mode"] == "All dates" or col not in df.columns or spec["start"] is None:
+        return df
+    ts = pd.to_datetime(df[col].astype(str).str[:10], errors="coerce")
+    start = pd.Timestamp(spec["start"])
+    end = pd.Timestamp(spec["end"]) + pd.Timedelta(days=1)
+    return df[(ts >= start) & (ts < end)]
+
+
+def sort_preprod(df, mode):
+    if df is None or df.empty:
+        return df
+    if mode.startswith("Execution date"):
+        ts = pd.to_datetime(df["execution_date"].astype(str).str[:10], errors="coerce")
+        asc = "oldest" in mode
+        return df.assign(_ts=ts).sort_values("_ts", ascending=asc, na_position="last", kind="stable").drop(columns="_ts").reset_index(drop=True)
+    if mode.startswith("Overall status"):
+        order = {"FAIL": 0, "BLOCKED": 1, "NOT EXECUTED": 2, "PASS": 3}
+        k = df["overall_status"].map(clean_str).str.upper().replace("", "NOT EXECUTED").map(order).fillna(9)
+        return df.assign(_k=k).sort_values("_k", kind="stable").drop(columns="_k").reset_index(drop=True)
+    return natural_sort_df(df)
+
+
+def preprod_download_selector(mat_df, exec_df):
+    """Summary-dashboard chooser: download everything, or filter/sort (status, scheme, category,
+    tester, executed date) first. Returns (mat_df, exec_df, keep_order, scope_label)."""
+    st.markdown("#### 🎛️ Choose What To Download")
+    mode = st.radio("Download scope", ["📦 All test cases", "🔎 Filter / sort, then download"],
+                    horizontal=True, key="pp_dl_mode")
+    if mode.startswith("📦"):
+        return mat_df, exec_df, False, "All"
+
+    with st.expander("Filter & sort options", expanded=True):
+        suite = st.radio("Test suite", ["Both suites", "Withdrawal Card Matrix only", "All Transactions only"],
+                         horizontal=True, key="pp_dl_suite")
+        f1, f2 = st.columns(2)
+        statuses = f1.multiselect("Overall status (empty = all)", ["PASS", "FAIL", "BLOCKED", "NOT EXECUTED"], key="pp_dl_status")
+        schemes = sorted({clean_str(x) for x in mat_df["card_scheme"]} - {""}) if not mat_df.empty and "card_scheme" in mat_df.columns else []
+        cats = sorted({clean_str(x) for x in exec_df["transaction_category"]} - {""}) if not exec_df.empty and "transaction_category" in exec_df.columns else []
+        tset = set()
+        for d_ in (mat_df, exec_df):
+            if not d_.empty and "tester" in d_.columns:
+                tset |= {clean_str(x) for x in d_["tester"]}
+        sel_schemes = f2.multiselect("Card scheme – Withdrawal Matrix (empty = all)", schemes, key="pp_dl_scheme")
+        f3, f4 = st.columns(2)
+        sel_cats = f3.multiselect("Transaction category – All Transactions (empty = all)", cats, key="pp_dl_cat")
+        sel_testers = f4.multiselect("Tester (empty = all)", sorted(tset - {""}), key="pp_dl_tester")
+        spec = date_filter_controls("pp_dl_date", "Executed Date")
+        sort_mode = st.selectbox("Sort by", ["Test Case ID (default)", "Execution date – newest first",
+                                             "Execution date – oldest first", "Overall status (FAIL first)"],
+                                 key="pp_dl_sort")
+
+    def _apply(df, is_mat):
+        if df is None or df.empty:
+            return df
+        d = df
+        if statuses:
+            s = d["overall_status"].map(clean_str).str.upper().replace("", "NOT EXECUTED")
+            d = d[s.isin(statuses)]
+        if is_mat and sel_schemes and "card_scheme" in d.columns:
+            d = d[d["card_scheme"].map(clean_str).isin(sel_schemes)]
+        if (not is_mat) and sel_cats and "transaction_category" in d.columns:
+            d = d[d["transaction_category"].map(clean_str).isin(sel_cats)]
+        if sel_testers and "tester" in d.columns:
+            d = d[d["tester"].map(clean_str).isin(sel_testers)]
+        d = filter_by_date(d, "execution_date", spec)
+        return sort_preprod(d, sort_mode)
+
+    dl_mat = _apply(mat_df, True) if suite != "All Transactions only" else mat_df.iloc[0:0]
+    dl_exec = _apply(exec_df, False) if suite != "Withdrawal Card Matrix only" else exec_df.iloc[0:0]
+    n_m, n_e = len(dl_mat), len(dl_exec)
+    if n_m + n_e == 0:
+        st.warning("No test cases match these filters – the downloaded report would be empty.")
+    else:
+        st.info(f"📌 Selected for download: **{n_m}** withdrawal matrix case(s) + **{n_e}** transaction case(s).")
+    return dl_mat, dl_exec, True, "Filtered"
+
+# =========================================================
+# PRE-PRODUCTION: defect database helpers
+# =========================================================
+def ensure_preprod_defect_tables():
+    """Creates preprod_defects / preprod_screen_issues if they do not exist yet (safe to run repeatedly)."""
+    conn = get_db_connection()
+    if not conn:
+        return False
+    try:
+        cur = conn.cursor()
+        cur.execute(PP_SCHEMA_SQL)
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        st.warning(f"Could not prepare the pre-production defect tables: {e}")
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        return False
+
+
+def pp_case_key(suite, tc_id, card_type="", issuing_bank="", account_type=""):
+    if suite == "MATRIX":
+        return f"{tc_id}|{card_type}|{issuing_bank}|{account_type}"
+    return str(tc_id)
+
+
+def pp_ctx(suite, row):
+    """Test-case context (from a dataframe row) used to create / resolve a defect."""
+    g = lambda k: clean_str(row.get(k))
+    if suite == "MATRIX":
+        module = f"Withdrawal – {g('card_scheme')} {g('card_type')} ({g('issuing_bank')}, {g('account_type')})".replace("  ", " ")
+        return {"tc_id": g("tc_id"), "card_scheme": g("card_scheme"), "card_type": g("card_type"),
+                "issuing_bank": g("issuing_bank"), "account_type": g("account_type"), "module_name": module}
+    return {"tc_id": g("tc_id"), "card_scheme": "", "card_type": g("card_type"), "issuing_bank": "",
+            "account_type": "", "module_name": g("transaction_category") or g("transaction_description")}
+
+
+def sync_preprod_defect(cur, suite, ctx, new_status, tester, utano, rrn, exec_date, remarks):
+    """Called inside the test-execution save transaction.
+    FAIL -> the failed case is logged in preprod_defects automatically (details can be completed later).
+    PASS -> any open defect for that case is removed automatically.
+    A SAVEPOINT guarantees a defect-table problem can never break saving the test result."""
+    status = clean_str(new_status).upper()
+    if status not in ("FAIL", "PASS"):
+        return
+    key = pp_case_key(suite, ctx["tc_id"], ctx["card_type"], ctx["issuing_bank"], ctx["account_type"])
+    cur.execute("SAVEPOINT pp_defect_sp")
+    try:
+        if status == "FAIL":
+            cur.execute("""
+                INSERT INTO preprod_defects
+                    (defect_ref, suite, case_key, source, module_name, card_scheme, card_type, issuing_bank,
+                     account_type, defect_status, defect_desc, detected_by, utano, rrn, execution_date)
+                VALUES (%s, %s, %s, 'AUTO', %s, %s, %s, %s, %s, 'Open', %s, %s, %s, %s, %s)
+                ON CONFLICT (suite, case_key) DO UPDATE SET
+                    detected_by    = EXCLUDED.detected_by,
+                    utano          = EXCLUDED.utano,
+                    rrn            = EXCLUDED.rrn,
+                    execution_date = EXCLUDED.execution_date,
+                    defect_desc    = COALESCE(NULLIF(preprod_defects.defect_desc, ''), EXCLUDED.defect_desc),
+                    updated_at     = CURRENT_TIMESTAMP
+            """, (ctx["tc_id"], suite, key, ctx["module_name"], ctx["card_scheme"], ctx["card_type"],
+                  ctx["issuing_bank"], ctx["account_type"], clean_str(remarks), clean_str(tester),
+                  clean_str(utano), clean_str(rrn), str(exec_date)))
+        else:
+            cur.execute("DELETE FROM preprod_defects WHERE suite = %s AND case_key = %s", (suite, key))
+        cur.execute("RELEASE SAVEPOINT pp_defect_sp")
+    except Exception:
+        cur.execute("ROLLBACK TO SAVEPOINT pp_defect_sp")
+
+
+def load_preprod_defects():
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    try:
+        df = pd.read_sql("SELECT * FROM preprod_defects", conn)
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return pd.DataFrame()
+    return natural_sort_df(df, "defect_ref")
+
+
+def resolve_preprod_defect(defect):
+    """Defect status set to PASS: the test case is marked PASS again and the defect is removed."""
+    conn = get_db_connection()
+    if not conn:
+        return False, "No database connection."
+    try:
+        cur = conn.cursor()
+        today = date.today().strftime("%Y-%m-%d")
+        note = f"Defect {defect['defect_ref']} retested PASS on {today}"
+        suite = defect["suite"]
+        if suite == "MATRIX":
+            cur.execute("""
+                UPDATE preprod_withdrawal_matrix
+                SET overall_status = 'PASS', execution_date = %s,
+                    remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || ' | ' || %s END
+                WHERE tc_id = %s AND card_type IS NOT DISTINCT FROM %s
+                  AND issuing_bank IS NOT DISTINCT FROM %s AND account_type IS NOT DISTINCT FROM %s
+            """, (today, note, note, defect["defect_ref"], clean_str(defect.get("card_type")) or None,
+                  clean_str(defect.get("issuing_bank")) or None, clean_str(defect.get("account_type")) or None))
+        elif suite == "EXEC":
+            cur.execute("""
+                UPDATE preprod_all_transactions
+                SET overall_status = 'PASS', execution_date = %s,
+                    remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || ' | ' || %s END
+                WHERE tc_id = %s
+            """, (today, note, note, defect["defect_ref"]))
+        cur.execute("DELETE FROM preprod_defects WHERE id = %s", (int(defect["id"]),))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, ("Defect resolved – removed from the tracker and the test case was updated to PASS."
+                      if suite != "MANUAL" else "Manual defect resolved and removed from the tracker.")
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        return False, f"Could not resolve defect: {e}"
+
+
+def attach_defect_receipts(df):
+    """Adds the tester's uploaded receipt (from the failed test case) so reports can show the evidence."""
+    d = df.copy()
+    d["receipt_output"] = None
+    if d.empty:
+        return d
+    conn = get_db_connection()
+    if not conn:
+        return d
+    try:
+        cur = conn.cursor()
+        for i, r in d.iterrows():
+            if r["suite"] == "MATRIX":
+                cur.execute("""SELECT receipt_output FROM preprod_withdrawal_matrix
+                               WHERE tc_id = %s AND card_type IS NOT DISTINCT FROM %s
+                                 AND issuing_bank IS NOT DISTINCT FROM %s AND account_type IS NOT DISTINCT FROM %s LIMIT 1""",
+                            (r["defect_ref"], clean_str(r.get("card_type")) or None,
+                             clean_str(r.get("issuing_bank")) or None, clean_str(r.get("account_type")) or None))
+            elif r["suite"] == "EXEC":
+                cur.execute("SELECT receipt_output FROM preprod_all_transactions WHERE tc_id = %s LIMIT 1", (r["defect_ref"],))
+            else:
+                continue
+            res = cur.fetchone()
+            if res and res[0]:
+                d.at[i, "receipt_output"] = bytes(res[0])
+        cur.close()
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return d
+
+
+# ---------- receipt helpers (module level, reused by the defect reports) ----------
+def receipt_to_jpeg(raw, max_px=800):
+    if raw is None or not isinstance(raw, (bytes, bytearray, memoryview)):
+        return None
+    raw = bytes(raw)
+    if not raw:
+        return None
+    try:
+        pil = PILImage.open(io.BytesIO(raw)).convert("RGB")
+        pil.thumbnail((max_px, max_px))
+        buf = io.BytesIO()
+        pil.save(buf, format="JPEG", quality=80)
+        return buf.getvalue(), pil.width, pil.height
+    except Exception:
+        return None
+
+
+def _pp_prepare_defect_records(df):
+    suite_names = {"MATRIX": "Withdrawal Card Matrix", "EXEC": "All Transactions", "MANUAL": "Manual / Out-of-scope"}
+    recs = []
+    for r in (df.to_dict("records") if df is not None and not df.empty else []):
+        r = dict(r)
+        r["source_label"] = "Auto – Failed Test" if clean_str(r.get("source")).upper() == "AUTO" else "Manual"
+        r["suite_label"] = suite_names.get(clean_str(r.get("suite")), clean_str(r.get("suite")))
+        recs.append(r)
+    return recs
+
+
+# =========================================================
+# PRE-PRODUCTION: professional Defect Register (Excel)
+# =========================================================
+def generate_preprod_defect_excel(df, scope_label="All defects"):
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.worksheet.properties import PageSetupProperties
+
+    FONT = "Calibri"
+    C_BANNER, C_SUB, C_HEAD, C_GOLD, C_LIGHT, C_BAND = "0B2545", "13315C", "1F4E78", "FFC000", "E8F0FA", "F3F7FC"
+    SEV = {"CRITICAL": ("C00000", "FFFFFF"), "HIGH": ("FFC7CE", "9C0006"), "MEDIUM": ("FFEB9C", "9C5700"), "LOW": ("C6EFCE", "006100")}
+    PRI = {"HIGH": ("FFC7CE", "9C0006"), "MODERATE": ("FFEB9C", "9C5700"), "MEDIUM": ("FFEB9C", "9C5700"), "LOW": ("C6EFCE", "006100")}
+    STA = {"OPEN": ("FFC7CE", "9C0006"), "IN PROGRESS": ("FFEB9C", "9C5700"), "READY FOR RETEST": ("DDEBF7", "1F4E78"),
+           "REJECTED": ("E7E6E6", "595959"), "PASS": ("C6EFCE", "006100")}
+    thin = Side(style="thin", color="D0D7E2")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_border = Border(left=thin, right=thin, top=thin, bottom=Side(style="medium", color=C_GOLD))
+    fill = lambda h: PatternFill(start_color=h, end_color=h, fill_type="solid")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", indent=1)
+    recs = _pp_prepare_defect_records(df)
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    meta_line = f"Environment: GRG CRM – Pre-Prod      |      Report Generated: {now_str}      |      Scope: {scope_label}      |      Defects: {len(recs)}"
+
+    def banner(ws, last_col, title, subtitle):
+        lc = get_column_letter(last_col)
+        for r_, txt, size, bold, colr, bg, h, ital in (
+            (1, title, 16, True, "FFFFFF", C_BANNER, 36, False),
+            (2, subtitle, 10, True, "FFFFFF", C_SUB, 20, False),
+            (3, meta_line, 10, False, "1F3864", C_LIGHT, 22, True)):
+            ws.merge_cells(f"A{r_}:{lc}{r_}")
+            c = ws[f"A{r_}"]
+            c.value = txt
+            c.font = Font(name=FONT, size=size, bold=bold, italic=ital, color=colr)
+            c.fill = fill(bg)
+            c.alignment = left
+            ws.row_dimensions[r_].height = h
+        for ci in range(1, last_col + 1):
+            ws.cell(row=4, column=ci).fill = fill(C_GOLD)
+        ws.row_dimensions[4].height = 4
+        ws.sheet_view.showGridLines = False
+        ws.sheet_view.zoomScale = 90
+
+    def page_setup(ws, title_row=None):
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        ws.page_margins.left = ws.page_margins.right = 0.4
+        if title_row:
+            ws.print_title_rows = f"{title_row}:{title_row}"
+        ws.oddFooter.left.text = "People's Bank – GRG CRM Pre-Prod Defect Register"
+        ws.oddFooter.right.text = "Page &P of &N"
+
+    def upper(v):
+        return clean_str(v).upper()
+
+    wb = Workbook()
+
+    # ================= SUMMARY =================
+    ws = wb.active
+    ws.title = "Summary"
+    banner(ws, 8, "PRE-PRODUCTION DEFECT SUMMARY", "PEOPLE'S BANK  ·  GRG CRM PRE-PRODUCTION UAT  ·  DEFECT TRACKING")
+    ws.column_dimensions["A"].width = 30
+    for col in "BCDEFGH":
+        ws.column_dimensions[col].width = 17
+    statuses = ["Open", "In Progress", "Ready for Retest", "Rejected"]
+    cnt = lambda s: sum(1 for r in recs if upper(r.get("defect_status")) == s.upper())
+    crit_high = sum(1 for r in recs if upper(r.get("severity")) in ("CRITICAL", "HIGH"))
+    auto_cnt = sum(1 for r in recs if r["source_label"].startswith("Auto"))
+    ws.merge_cells("A5:A6")
+    ws["A5"] = "KEY METRICS"
+    ws["A5"].font = Font(name=FONT, size=11, bold=True, color="FFFFFF")
+    ws["A5"].fill = fill(C_HEAD)
+    ws["A5"].alignment = center
+    ws.row_dimensions[5].height = 20
+    ws.row_dimensions[6].height = 44
+    tiles = [("B", "TOTAL DEFECTS", len(recs), "1F4E78"), ("C", "OPEN", cnt("Open"), "9C0006"),
+             ("D", "IN PROGRESS", cnt("In Progress"), "9C5700"), ("E", "READY FOR RETEST", cnt("Ready for Retest"), "1F4E78"),
+             ("F", "REJECTED", cnt("Rejected"), "595959"), ("G", "CRITICAL / HIGH", crit_high, "C00000"),
+             ("H", "FROM FAILED TESTS", auto_cnt, "1F4E78")]
+    for col, lab, val, colr in tiles:
+        c = ws[f"{col}5"]
+        c.value, c.font, c.fill, c.alignment, c.border = lab, Font(name=FONT, size=9, bold=True, color="7F7F7F"), fill(C_LIGHT), center, border
+        v = ws[f"{col}6"]
+        v.value, v.font, v.alignment, v.border = val, Font(name=FONT, size=22, bold=True, color=colr), center, border
+
+    def breakdown(start_row, title, first_hdr, keys, getter):
+        ws.cell(row=start_row, column=1, value=title).font = Font(name=FONT, size=12, bold=True, color=C_HEAD)
+        ws.row_dimensions[start_row].height = 24
+        hr = start_row + 1
+        heads = [first_hdr] + statuses + ["Total"]
+        for ci, h in enumerate(heads, start=1):
+            c = ws.cell(row=hr, column=ci, value=h)
+            c.font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+            c.fill = fill(C_HEAD)
+            c.alignment = Alignment(horizontal="left" if ci == 1 else "center", vertical="center", indent=1 if ci == 1 else 0)
+            c.border = head_border
+        ws.row_dimensions[hr].height = 26
+        r = hr + 1
+        for i, k in enumerate(keys):
+            sub = [x for x in recs if getter(x) == k]
+            ws.row_dimensions[r].height = 21
+            vals = [k] + [sum(1 for x in sub if upper(x.get("defect_status")) == s.upper()) for s in statuses] + [f"=SUM(B{r}:E{r})"]
+            for ci, v in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=ci, value=v)
+                c.fill = fill(C_BAND if i % 2 else "FFFFFF")
+                c.border = border
+                c.font = Font(name=FONT, size=10, bold=(ci == 1 or ci == 6), color=C_HEAD if ci == 1 else "222222")
+                c.alignment = left if ci == 1 else center
+            r += 1
+        ws.row_dimensions[r].height = 22
+        for ci in range(1, 7):
+            col = get_column_letter(ci)
+            c = ws.cell(row=r, column=ci, value="TOTAL" if ci == 1 else f"=SUM({col}{hr + 1}:{col}{r - 1})")
+            c.fill = fill(C_LIGHT)
+            c.font = Font(name=FONT, size=11, bold=True, color=C_BANNER)
+            c.alignment = left if ci == 1 else center
+            c.border = Border(left=thin, right=thin, top=Side(style="medium", color=C_HEAD), bottom=Side(style="medium", color=C_HEAD))
+        return hr, r
+
+    sev_keys = ["Critical", "High", "Medium", "Low", "Not Set"]
+    sev_get = lambda x: (clean_str(x.get("severity")).title() or "Not Set")
+    hr1, tot1 = breakdown(8, "Defects by Severity", "Severity", sev_keys, sev_get)
+    assigned_keys = []
+    for x in recs:
+        a = clean_str(x.get("assigned_to")) or "Unassigned"
+        if a not in assigned_keys:
+            assigned_keys.append(a)
+    hr2, tot2 = breakdown(tot1 + 3, "Defects by Assigned Team", "Assigned To", assigned_keys or ["Unassigned"],
+                          lambda x: clean_str(x.get("assigned_to")) or "Unassigned")
+
+    ch = BarChart()
+    ch.type, ch.grouping, ch.overlap = "col", "stacked", 100
+    ch.title = "Defects by severity and status"
+    ch.add_data(Reference(ws, min_col=2, max_col=5, min_row=hr1, max_row=tot1 - 1), titles_from_data=True)
+    ch.set_categories(Reference(ws, min_col=1, min_row=hr1 + 1, max_row=tot1 - 1))
+    for s, colr in zip(ch.series, ["C00000", "FFC000", "2E75B6", "A6A6A6"]):
+        s.graphicalProperties.solidFill = colr
+        s.graphicalProperties.line.solidFill = colr
+    ch.height, ch.width = 8.5, 24
+    ch.legend.position = "b"
+    ws.add_chart(ch, f"A{tot2 + 3}")
+    ws.sheet_properties.tabColor = C_GOLD
+    page_setup(ws)
+
+    # ================= DEFECT REGISTER =================
+    wr = wb.create_sheet("Defect Register")
+    cols = [
+        ("Defect / Reference ID", "defect_ref", 20, "id"), ("Source", "source_label", 17, "center"),
+        ("Test Suite", "suite_label", 22, "center"), ("Module / Feature Name", "module_name", 32, "wrap"),
+        ("Severity", "severity", 13, "sev"), ("Priority", "priority", 13, "pri"),
+        ("Assigned To", "assigned_to", 18, "center"), ("Defect Status", "defect_status", 18, "sta"),
+        ("Defect Description", "defect_desc", 46, "wrap"), ("Steps to Reproduce", "steps_to_reproduce", 46, "wrap"),
+        ("Expected Result", "expected_result", 40, "wrap"), ("Detected By (Tester)", "detected_by", 20, "center"),
+        ("UTANO / Bill Number", "utano", 24, "center"), ("RRN", "rrn", 16, "center"),
+        ("Executed / Logged Date", "execution_date", 17, "date"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
+    ]
+    ncols = len(cols)
+    lc = get_column_letter(ncols)
+    banner(wr, ncols, "GRG CRM PRE-PROD – DEFECT TRACKING REGISTER", "PEOPLE'S BANK  ·  Failed pre-production test cases and manually logged defects")
+    HDR = 5
+    wr.row_dimensions[HDR].height = 34
+    for ci, (h, key, w, kind) in enumerate(cols, start=1):
+        c = wr.cell(row=HDR, column=ci, value=h)
+        c.font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+        c.fill = fill(C_HEAD)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = head_border
+        wr.column_dimensions[get_column_letter(ci)].width = w
+    r = HDR + 1
+    for i, rec in enumerate(recs):
+        band = C_BAND if i % 2 else "FFFFFF"
+        row_h = 26
+        for ci, (h, key, w, kind) in enumerate(cols, start=1):
+            c = wr.cell(row=r, column=ci)
+            c.border, c.fill, c.font, c.alignment = border, fill(band), Font(name=FONT, size=10, color="222222"), center
+            v = clean_str(rec.get(key)) if kind != "receipt" else None
+            if kind == "id":
+                c.value = v
+                c.font = Font(name=FONT, size=10, bold=True, color=C_HEAD)
+                c.alignment = left
+            elif kind in ("sev", "pri", "sta"):
+                table = {"sev": SEV, "pri": PRI, "sta": STA}[kind]
+                label = v if v else ("Open" if kind == "sta" else "Not set")
+                bg, fg = table.get(label.upper(), ("EDEDED", "595959"))
+                c.value = label
+                c.fill = fill(bg)
+                c.font = Font(name=FONT, size=10, bold=True, color=fg)
+            elif kind == "date":
+                c.value = v[:10]
+            elif kind == "wrap":
+                c.value = v
+                c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left", indent=1)
+                lines = sum(max(1, -(-len(part) // max(int(w * 1.05), 1))) for part in (v.split("\n") if v else [""]))
+                row_h = max(row_h, 14 * lines + 8)
+            elif kind == "receipt":
+                res = receipt_to_jpeg(rec.get("receipt_output"))
+                if res:
+                    data, iw, ih = res
+                    sc = min(170 / iw, 100 / ih, 1)
+                    img = OpenPyXLImage(io.BytesIO(data))
+                    img.width, img.height = int(iw * sc), int(ih * sc)
+                    wr.add_image(img, f"{get_column_letter(ci)}{r}")
+                    row_h = max(row_h, img.height * 0.75 + 8)
+                else:
+                    c.value = "—"
+                    c.font = Font(name=FONT, size=10, color="A6A6A6")
+            else:
+                c.value = v
+        wr.row_dimensions[r].height = min(row_h, 220)
+        r += 1
+    if not recs:
+        wr.merge_cells(f"A{r}:{lc}{r}")
+        wr[f"A{r}"] = "No defects logged for the selected criteria."
+        wr[f"A{r}"].font = Font(name=FONT, size=10, italic=True, color="7F7F7F")
+        wr[f"A{r}"].alignment = center
+        r += 1
+    wr.auto_filter.ref = f"A{HDR}:{lc}{max(r - 1, HDR)}"
+    wr.freeze_panes = f"B{HDR + 1}"
+    wr.sheet_properties.tabColor = "C00000"
+    page_setup(wr, title_row=HDR)
+
+    wb.active = 0
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out.getvalue()
+
+
+# =========================================================
+# PRE-PRODUCTION: Defect Register (PDF)
+# =========================================================
+def generate_preprod_defect_pdf(df, scope_label="All defects"):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImg, KeepTogether, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors as rl_colors
+
+    recs = _pp_prepare_defect_records(df)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=32, bottomMargin=36,
+                            title="Pre-Production Defect Tracking Report")
+    W = A4[0] - 64
+    ss = getSampleStyleSheet()
+    NAVY, BLUE = rl_colors.HexColor("#0B2545"), rl_colors.HexColor("#1F4E78")
+    st_title = ParagraphStyle("t", parent=ss["Title"], fontName="Helvetica-Bold", fontSize=18, textColor=NAVY, alignment=0, spaceAfter=2)
+    st_meta = ParagraphStyle("m", parent=ss["Normal"], fontName="Helvetica-Oblique", fontSize=9, textColor=rl_colors.HexColor("#475569"))
+    st_lbl = ParagraphStyle("l", parent=ss["Normal"], fontName="Helvetica-Bold", fontSize=8, textColor=rl_colors.HexColor("#64748B"))
+    st_val = ParagraphStyle("v", parent=ss["Normal"], fontName="Helvetica", fontSize=9.5, textColor=rl_colors.HexColor("#0F172A"), leading=12)
+    st_head = ParagraphStyle("h", parent=ss["Normal"], fontName="Helvetica-Bold", fontSize=11, textColor=rl_colors.white)
+    st_sec = ParagraphStyle("s", parent=ss["Normal"], fontName="Helvetica-Bold", fontSize=9, textColor=BLUE, spaceBefore=6, spaceAfter=2)
+    st_body = ParagraphStyle("b", parent=ss["Normal"], fontName="Helvetica", fontSize=9.5, leading=13)
+
+    def P(txt, style=st_val):
+        t = _xml_escape(clean_str(txt)) or "—"
+        return Paragraph(t.replace("\n", "<br/>"), style)
+
+    STAT_BG = {"OPEN": "#FFC7CE", "IN PROGRESS": "#FFEB9C", "READY FOR RETEST": "#DDEBF7", "REJECTED": "#E7E6E6", "PASS": "#C6EFCE"}
+    STAT_FG = {"OPEN": "#9C0006", "IN PROGRESS": "#9C5700", "READY FOR RETEST": "#1F4E78", "REJECTED": "#595959", "PASS": "#006100"}
+
+    story = [Paragraph("PRE-PRODUCTION DEFECT TRACKING REPORT", st_title),
+             Paragraph(f"People's Bank · GRG CRM Pre-Production UAT &nbsp;|&nbsp; Generated {datetime.now().strftime('%d/%m/%Y %H:%M')} "
+                       f"&nbsp;|&nbsp; Scope: {_xml_escape(scope_label)}", st_meta),
+             Spacer(1, 10)]
+
+    counts = [("TOTAL", len(recs))] + [(s.upper(), sum(1 for r in recs if clean_str(r.get("defect_status")).upper() == s.upper()))
+                                       for s in ("Open", "In Progress", "Ready for Retest", "Rejected")]
+    tiles = Table([[Paragraph(f"<font size=8 color='#64748B'><b>{n}</b></font>", st_val) for n, _ in counts],
+                   [Paragraph(f"<font size=20 color='#1F4E78'><b>{v}</b></font>", ParagraphStyle("kpi", parent=st_val, leading=26)) for _, v in counts]],
+                  colWidths=[W / len(counts)] * len(counts))
+    tiles.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), rl_colors.HexColor("#F3F7FC")),
+                               ("BOX", (0, 0), (-1, -1), 0.6, rl_colors.HexColor("#D0D7E2")),
+                               ("INNERGRID", (0, 0), (-1, -1), 0.4, rl_colors.HexColor("#D0D7E2")),
+                               ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+    story += [tiles, Spacer(1, 12)]
+
+    if not recs:
+        story.append(Paragraph("No defects logged for the selected criteria.", st_body))
+    for r in recs:
+        status = clean_str(r.get("defect_status")) or "Open"
+        ref = clean_str(r.get("defect_ref"))
+        head = Table([[Paragraph(f"{_xml_escape(ref)} &nbsp;·&nbsp; {_xml_escape(clean_str(r.get('module_name')) or 'Module not set')}", st_head),
+                       Paragraph(f"<font color='{STAT_FG.get(status.upper(), '#334155')}'><b>{_xml_escape(status.upper())}</b></font>",
+                                 ParagraphStyle("pill", parent=st_val, alignment=1))]],
+                     colWidths=[W - 120, 120])
+        head.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, 0), NAVY),
+                                  ("BACKGROUND", (1, 0), (1, 0), rl_colors.HexColor(STAT_BG.get(status.upper(), "#E2E8F0"))),
+                                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                  ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                                  ("LEFTPADDING", (0, 0), (0, 0), 10)]))
+        kv = Table([
+            [P("SEVERITY", st_lbl), P(r.get("severity")), P("PRIORITY", st_lbl), P(r.get("priority")), P("ASSIGNED TO", st_lbl), P(r.get("assigned_to"))],
+            [P("DETECTED BY", st_lbl), P(r.get("detected_by")), P("UTANO / BILL NO.", st_lbl), P(r.get("utano")), P("RRN", st_lbl), P(r.get("rrn"))],
+            [P("TEST SUITE", st_lbl), P(r.get("suite_label")), P("SOURCE", st_lbl), P(r.get("source_label")), P("EXECUTED / LOGGED", st_lbl), P(clean_str(r.get("execution_date"))[:10])],
+        ], colWidths=[58, 100, 74, W - 58 - 100 - 74 - 74 - 105, 74, 105])
+        kv.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, rl_colors.HexColor("#D0D7E2")),
+                                ("INNERGRID", (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#E2E8F0")),
+                                ("BACKGROUND", (0, 0), (-1, -1), rl_colors.HexColor("#FAFCFF")),
+                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+        block = [head, kv]
+        for label, key in (("DEFECT DESCRIPTION", "defect_desc"), ("STEPS TO REPRODUCE", "steps_to_reproduce"), ("EXPECTED RESULT", "expected_result")):
+            block += [Paragraph(label, st_sec), P(r.get(key), st_body)]
+        res = receipt_to_jpeg(r.get("receipt_output"))
+        if res:
+            data, iw, ih = res
+            sc = min(300 / iw, 220 / ih, 1)
+            block += [Paragraph("RECEIPT / EVIDENCE", st_sec), RLImg(io.BytesIO(data), width=iw * sc, height=ih * sc)]
+        block.append(Spacer(1, 16))
+        story.append(KeepTogether(block[:2]))
+        story += block[2:]
+
+    def _footer(canvas, d):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(rl_colors.HexColor("#64748B"))
+        canvas.drawString(32, 20, "People's Bank – GRG CRM Pre-Prod Defect Register")
+        canvas.drawRightString(A4[0] - 32, 20, f"Page {d.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return buf.getvalue()
+
+# =========================================================
+# PRE-PRODUCTION: Defect Tracker tab
+# =========================================================
+def _pp_idx(options, value, default=0):
+    return options.index(value) if value in options else default
+
+
+def render_preprod_defect_tracker(can_execute):
+    st.markdown("### 🛠️ Pre-Production Defect Tracker")
+    st.caption("A test case saved with Overall Status **FAIL** is added here automatically. Testers/admins complete the details later. "
+               "When the fix is retested, set **Defect Status = PASS** – the defect is removed from this list and the test case is updated to PASS.")
+
+    if "pp_flash" in st.session_state:
+        st.success(st.session_state.pop("pp_flash"))
+
+    defects_df = load_preprod_defects()
+    total = len(defects_df)
+    dstat = defects_df["defect_status"].map(clean_str).str.upper() if total else pd.Series([], dtype=str)
+    n_open, n_prog = int((dstat == "OPEN").sum()), int((dstat == "IN PROGRESS").sum())
+    n_retest, n_rej = int((dstat == "READY FOR RETEST").sum()), int((dstat == "REJECTED").sum())
+    k1, k2, k3, k4, k5 = st.columns(5)
+    for col, num, lab, colr in ((k1, total, "Active Defects", "#1f4e78"), (k2, n_open, "Open", "#dc2626"),
+                                (k3, n_prog, "In Progress", "#d97706"), (k4, n_retest, "Ready for Retest", "#0284c7"),
+                                (k5, n_rej, "Rejected", "#64748b")):
+        col.markdown(f'<div class="metric-card"><div class="metric-num" style="color:{colr};">{num}</div><div class="metric-label">{lab}</div></div>', unsafe_allow_html=True)
+    st.markdown("")
+
+    # ---------- log a manual defect ----------
+    if can_execute:
+        with st.expander("➕ Log Manual / Out-of-Scope Defect", expanded=False):
+            st.markdown("Use this for defects found during pre-production testing that are not tied to a failed test case.")
+            nums = [int(m) for m in (defects_df["defect_ref"].astype(str).str.extract(r"PP_DEF_(\d+)")[0].dropna()) ] if total else []
+            next_ref = f"PP_DEF_{(max(nums) + 1) if nums else 1:03d}"
+            with st.form("pp_manual_defect_form"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    m_ref = st.text_input("Defect / Reference ID", value=next_ref)
+                    m_module = st.text_input("Module / Feature Name", placeholder="e.g. Cardless Cash Deposit")
+                    m_sev = st.selectbox("Severity", PP_SEVERITY, index=1, key="pp_man_sev")
+                with c2:
+                    m_pri = st.selectbox("Priority", PP_PRIORITY, index=1, key="pp_man_pri")
+                    m_assign = st.selectbox("Assigned To", PP_ASSIGNED, key="pp_man_assign")
+                    m_status = st.selectbox("Defect Status", PP_DEFECT_STATUS[:-1], key="pp_man_status")
+                m_desc = st.text_area("Defect Description", placeholder="Describe the unexpected behaviour or failure...")
+                m_steps = st.text_area("Steps to Reproduce", placeholder="1. Go to...\n2. Enter...\n3. Observe...")
+                m_exp = st.text_area("Expected Result", placeholder="What should have happened...")
+                c3, c4 = st.columns(2)
+                m_by = c3.text_input("Detected By (Tester)", value=st.session_state.get("logged_user", "Tester"))
+                m_utano = c4.text_input("UTANO / Bill Number (Optional)")
+                if st.form_submit_button("🚨 Save Defect to Database", use_container_width=True, type="primary"):
+                    if not m_ref.strip() or not m_desc.strip():
+                        st.error("Please provide at least a Defect ID and a Description.")
+                    else:
+                        conn = get_db_connection()
+                        if conn:
+                            try:
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    INSERT INTO preprod_defects (defect_ref, suite, case_key, source, module_name, severity, priority,
+                                        assigned_to, defect_status, defect_desc, steps_to_reproduce, expected_result, detected_by,
+                                        utano, rrn, execution_date)
+                                    VALUES (%s,'MANUAL',%s,'MANUAL',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                    ON CONFLICT (suite, case_key) DO NOTHING
+                                """, (m_ref.strip(), m_ref.strip(), m_module.strip() or "General", m_sev, m_pri, m_assign, m_status,
+                                      m_desc.strip(), m_steps.strip(), m_exp.strip(), m_by.strip(), m_utano.strip(),
+                                      pp_derive_rrn(m_utano), datetime.now().strftime("%Y-%m-%d")))
+                                created = cur.rowcount
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                if created:
+                                    st.session_state["pp_flash"] = f"Defect {m_ref.strip()} saved."
+                                    st.rerun()
+                                else:
+                                    st.error(f"A manual defect with ID {m_ref.strip()} already exists.")
+                            except Exception as e:
+                                st.error(f"Could not save defect: {e}")
+
+    if defects_df.empty:
+        st.success("🎉 No active pre-production defects. Failed test cases will appear here automatically.")
+        return
+
+    # ---------- search & filters ----------
+    st.markdown("#### 🔍 Search & Filter Defects")
+    s1, s2 = st.columns([2, 1])
+    kw = s1.text_input("Search by Defect ID, module, description, UTANO / RRN or tester", key="pp_def_kw",
+                       placeholder="e.g. WD-001, Visa, timeout, 002657463900")
+    sel_status = s2.multiselect("Defect Status (empty = all)", PP_DEFECT_STATUS[:-1], key="pp_def_status")
+    spec = date_filter_controls("pp_def_date", "Executed / Logged Date")
+
+    view = defects_df
+    if kw.strip():
+        hay = view[["defect_ref", "module_name", "defect_desc", "steps_to_reproduce", "expected_result", "utano", "rrn",
+                    "detected_by", "assigned_to"]].fillna("").astype(str).agg(" ".join, axis=1)
+        view = view[hay.str.contains(kw.strip(), case=False, na=False, regex=False)]
+    if sel_status:
+        view = view[view["defect_status"].map(clean_str).isin(sel_status)]
+    view = filter_by_date(view, "execution_date", spec)
+
+    if view.empty:
+        st.info("No defects match your search / filters.")
+        return
+    st.warning(f"⚠️ Active defects matching your criteria: {len(view)}")
+
+    # ---------- downloads ----------
+    st.markdown("### 📥 Download Defect Tracking Register")
+    scope = "All active defects" if len(view) == len(defects_df) else f"Filtered ({len(view)} of {len(defects_df)} defects)"
+    view_dl = attach_defect_receipts(view)
+    d1, d2 = st.columns(2)
+    d1.download_button("📥 Download Defect Register (.xlsx)", data=generate_preprod_defect_excel(view_dl, scope),
+                       file_name=f"PeoplesBank_PreProd_Defect_Register_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    d2.download_button("📄 Download Defect Report (.pdf)", data=generate_preprod_defect_pdf(view_dl, scope),
+                       file_name=f"PeoplesBank_PreProd_Defect_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                       mime="application/pdf", use_container_width=True)
+    st.divider()
+
+    # ---------- overview table ----------
+    st.markdown("### 📋 Active Defects Overview Table")
+    overview = pd.DataFrame({
+        "Defect / Reference ID": view["defect_ref"], "Module / Feature": view["module_name"].map(clean_str),
+        "Severity": view["severity"].map(clean_str), "Priority": view["priority"].map(clean_str),
+        "Assigned To": view["assigned_to"].map(clean_str), "Defect Status": view["defect_status"].map(clean_str),
+        "Defect Description": view["defect_desc"].map(clean_str), "Detected By": view["detected_by"].map(clean_str),
+        "UTANO / Bill No.": view["utano"].map(clean_str), "RRN": view["rrn"].map(clean_str),
+        "Executed Date": view["execution_date"].map(lambda v: clean_str(v)[:10]),
+    })
+    st.dataframe(overview, use_container_width=True, hide_index=True, height=340)
+
+    # ---------- individual defects ----------
+    st.divider()
+    st.markdown("### ⚙️ Individual Defect Details & Management")
+    sev_icon = {"CRITICAL": "🟥", "HIGH": "🔴", "MEDIUM": "🟠", "LOW": "🟡"}
+    for _, row in view.iterrows():
+        did = int(row["id"])
+        ref = clean_str(row["defect_ref"])
+        icon = sev_icon.get(clean_str(row.get("severity")).upper(), "⚪")
+        title_desc = clean_str(row.get("defect_desc"))[:70] or "Details not added yet"
+        with st.expander(f"{icon} [{ref}] {title_desc} — Status: {clean_str(row.get('defect_status')) or 'Open'}"):
+            origin = {"MATRIX": "Withdrawal Card Matrix", "EXEC": "All Transactions Execution Report", "MANUAL": "Manual defect"}.get(row["suite"], row["suite"])
+            info = f"**Source:** {origin}"
+            if row["suite"] == "MATRIX":
+                info += f"  |  **Card:** {clean_str(row.get('card_scheme'))} {clean_str(row.get('card_type'))}  |  **Bank:** {clean_str(row.get('issuing_bank'))}  |  **Account:** {clean_str(row.get('account_type'))}"
+            info += f"  |  **RRN:** {clean_str(row.get('rrn')) or '—'}  |  **UTANO:** {clean_str(row.get('utano')) or '—'}"
+            st.markdown(info)
+            if not can_execute:
+                for lab, key in (("Defect Description", "defect_desc"), ("Steps to Reproduce", "steps_to_reproduce"), ("Expected Result", "expected_result")):
+                    st.markdown(f"**{lab}:**")
+                    st.info(clean_str(row.get(key)) or "—")
+                continue
+            with st.form(key=f"pp_def_form_{did}"):
+                c1, c2, c3 = st.columns(3)
+                module = c1.text_input("Module / Feature Name", value=clean_str(row.get("module_name")))
+                sev_opts = [PP_NOT_SET] + PP_SEVERITY
+                sev = c2.selectbox("Severity", sev_opts, index=_pp_idx(sev_opts, clean_str(row.get("severity"))))
+                pri_opts = [PP_NOT_SET] + PP_PRIORITY
+                pri = c3.selectbox("Priority", pri_opts, index=_pp_idx(pri_opts, clean_str(row.get("priority"))))
+                c4, c5, c6 = st.columns(3)
+                as_opts = [PP_NOT_SET] + PP_ASSIGNED
+                assigned = c4.selectbox("Assigned To", as_opts, index=_pp_idx(as_opts, clean_str(row.get("assigned_to"))))
+                status = c5.selectbox("Defect Status", PP_DEFECT_STATUS, index=_pp_idx(PP_DEFECT_STATUS, clean_str(row.get("defect_status")), 0),
+                                      help="Choose PASS once the fix is retested – the defect is removed and the test case becomes PASS.")
+                utano = c6.text_input("UTANO / Bill Number (Optional)", value=clean_str(row.get("utano")))
+                desc = st.text_area("Defect Description", value=clean_str(row.get("defect_desc")), height=90)
+                steps = st.text_area("Steps to Reproduce", value=clean_str(row.get("steps_to_reproduce")), height=90)
+                exp = st.text_area("Expected Result", value=clean_str(row.get("expected_result")), height=90)
+                by = st.text_input("Detected By (Tester)", value=clean_str(row.get("detected_by")))
+                if st.form_submit_button("💾 Save Defect Details", use_container_width=True, type="primary"):
+                    if status == "PASS":
+                        ok, msg = resolve_preprod_defect(dict(row))
+                        if ok:
+                            st.session_state["pp_flash"] = f"{ref}: {msg}"
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        conn = get_db_connection()
+                        if conn:
+                            try:
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    UPDATE preprod_defects SET module_name=%s, severity=%s, priority=%s, assigned_to=%s, defect_status=%s,
+                                        defect_desc=%s, steps_to_reproduce=%s, expected_result=%s, detected_by=%s, utano=%s, rrn=%s,
+                                        updated_at=CURRENT_TIMESTAMP
+                                    WHERE id=%s
+                                """, (module.strip(), None if sev == PP_NOT_SET else sev, None if pri == PP_NOT_SET else pri,
+                                      None if assigned == PP_NOT_SET else assigned, status, desc.strip(), steps.strip(), exp.strip(),
+                                      by.strip(), utano.strip(), pp_derive_rrn(utano, row.get("rrn")), did))
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                st.session_state["pp_flash"] = f"Defect {ref} updated."
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Could not update defect: {e}")
+            if st.button(f"🗑️ Delete Defect ({ref})", key=f"pp_def_del_{did}", use_container_width=True):
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("DELETE FROM preprod_defects WHERE id = %s", (did,))
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                        st.session_state["pp_flash"] = f"Defect {ref} deleted (the test case status was not changed)."
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not delete defect: {e}")
+
+
+# =========================================================
+# PRE-PRODUCTION: UI / Screen Issues tab
+# =========================================================
+def render_preprod_screen_issues(can_execute):
+    st.markdown("### 🎨 UI, Layout & Multi-Language Screen Issues Tracker")
+    st.markdown("Log visual UI defects, alignment issues, text typos and translation errors found during **pre-production** testing across "
+                "**English, Sinhala and Tamil** screens, with icon references and up to 3 screenshot proofs.")
+    if "pp_flash" in st.session_state:
+        st.success(st.session_state.pop("pp_flash"))
+
+    conn = get_db_connection()
+    screen_df = pd.DataFrame()
+    if conn:
+        try:
+            screen_df = pd.read_sql("SELECT * FROM preprod_screen_issues", conn)
+            conn.close()
+        except Exception:
+            pass
+    nums = [int(m) for m in screen_df["issue_id"].astype(str).str.extract(r"PP_UI_(\d+)")[0].dropna()] if not screen_df.empty else []
+    next_num = (max(nums) + 1) if nums else 1
+    next_id = f"PP_UI_{next_num:02d}"
+
+    lang_list = ["English", "Sinhala", "Tamil", "All Languages (Multilingual)"]
+    type_list = ["UI Layout / Overflow", "Alignment Issue", "Translation / Typo Error", "Font / Styling Issue", "Missing UI Element", "Other"]
+
+    if can_execute:
+        with st.expander("➕ Log New Screen / UI Issue", expanded=False):
+            with st.form("pp_screen_issue_form"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.text_input("Screen Issue ID (Auto-Sequential)", value=next_id, disabled=True)
+                    icon = st.text_input("Screen Icon Number", value=f"ICON_{next_num:02d}", placeholder="e.g. ICON019 (English), ICON319 (Sinhala)")
+                    module = st.text_input("Module / Feature Name", placeholder="e.g. Cardless Cash Deposit")
+                    screen = st.text_input("Screen Name / Component", placeholder="e.g. User Confirmation Screen")
+                with c2:
+                    lang = st.selectbox("Language Affected", lang_list)
+                    itype = st.selectbox("Issue Type", type_list)
+                    sev = st.selectbox("Severity", PP_SEVERITY, key="pp_scr_sev")
+                desc = st.text_area("Issue Description", placeholder="Describe what looks incorrect on the screen...")
+                notes = st.text_area("Developer Explanation / Fix Instructions", placeholder="Explain clearly how the developer should fix this...")
+                st.markdown("---")
+                st.markdown("### 📸 Upload Screenshots & Icon Reference (Maximum 3 Photos)")
+                photos = st.file_uploader("Upload up to 3 screenshots showing the UI/Screen issue", type=["png", "jpg", "jpeg"],
+                                          accept_multiple_files=True, key="pp_scr_photos")
+                if st.form_submit_button("🚨 Save Screen Issue to Database", use_container_width=True, type="primary"):
+                    if not icon.strip().upper().startswith("ICON"):
+                        st.error("Screen Icon Number must start with 'ICON' followed by the number (e.g. ICON019).")
+                    elif not desc.strip():
+                        st.error("Please provide at least an Issue Description.")
+                    else:
+                        imgs = [base64.b64encode(f.getvalue()).decode("utf-8") for f in (photos or [])[:3]]
+                        imgs += [""] * (3 - len(imgs))
+                        conn = get_db_connection()
+                        if conn:
+                            try:
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    INSERT INTO preprod_screen_issues
+                                        (issue_id, module_name, icon_number, screen_name, language, issue_type, severity, description,
+                                         developer_notes, detected_by, created_at, image1, image2, image3)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                """, (next_id, module.strip() or "General_UI", icon.strip(), screen.strip() or "Main Screen", lang, itype,
+                                      sev, desc.strip(), notes.strip(), st.session_state.get("logged_user", "Tester"),
+                                      datetime.now().strftime("%Y-%m-%d %H:%M:%S"), imgs[0], imgs[1], imgs[2]))
+                                conn.commit()
+                                cur.close()
+                                conn.close()
+                                st.session_state["pp_flash"] = f"Screen issue {next_id} saved with icon {icon.strip()}."
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Screen issue save failed: {e}")
+
+    if screen_df.empty:
+        st.info("ℹ️ No pre-production screen / UI issues logged yet.")
+        return
+    screen_df = natural_sort_df(screen_df, "issue_id")
+
+    # ---------- search & filters ----------
+    st.markdown("#### 🔍 Search & Filter Screen Issues")
+    s1, s2 = st.columns([2, 1])
+    kw = s1.text_input("Search by Issue ID, icon, module, screen, description or notes", key="pp_scr_kw", placeholder="e.g. PP_UI_03, ICON019, overflow")
+    sel_sev = s2.multiselect("Severity (empty = all)", PP_SEVERITY, key="pp_scr_sevf")
+    spec = date_filter_controls("pp_scr_date", "Logged Date")
+    view = screen_df
+    if kw.strip():
+        hay = view[["issue_id", "icon_number", "module_name", "screen_name", "language", "issue_type", "description", "developer_notes"]] \
+            .fillna("").astype(str).agg(" ".join, axis=1)
+        view = view[hay.str.contains(kw.strip(), case=False, na=False, regex=False)]
+    if sel_sev:
+        view = view[view["severity"].map(clean_str).isin(sel_sev)]
+    view = filter_by_date(view, "created_at", spec)
+    if view.empty:
+        st.info("No screen issues match your search / filters.")
+        return
+    st.warning(f"⚠️ Screen / UI issues matching your criteria: {len(view)} (total logged: {len(screen_df)})")
+
+    st.markdown("### 📥 Download Official Screen Issues Reports")
+    dl1, dl2 = st.columns(2)
+    dl1.download_button("📥 Download Screen Issues (.xlsx)", data=generate_screen_issues_excel(view).getvalue(),
+                        file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    dl2.download_button("📥 Download Screen Issues (.pdf)", data=generate_screen_issues_pdf(view).getvalue(),
+                        file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        mime="application/pdf", use_container_width=True)
+    st.divider()
+
+    for idx, row in view.iterrows():
+        s_id, s_mod = clean_str(row.get("issue_id")), clean_str(row.get("module_name"))
+        s_icon = clean_str(row.get("icon_number")) or "ICON_01"
+        s_screen, s_lang, s_type = clean_str(row.get("screen_name")), clean_str(row.get("language")), clean_str(row.get("issue_type"))
+        s_sev, s_desc, s_notes = clean_str(row.get("severity")) or "Medium", clean_str(row.get("description")), clean_str(row.get("developer_notes"))
+        s_by, s_date = clean_str(row.get("detected_by")), clean_str(row.get("created_at"))
+        with st.expander(f"🎨 [{s_id}] Icon: {s_icon} | {s_type} — Screen: {s_screen} ({s_lang}) | Severity: {s_sev}"):
+            i1, i2 = st.columns(2)
+            with i1:
+                st.markdown(f"**Module:** `{s_mod}`")
+                st.markdown(f"**Screen Icon Number:** `{s_icon}`")
+                st.markdown(f"**Screen / Component:** `{s_screen}`")
+                st.markdown(f"**Language:** `{s_lang}`")
+            with i2:
+                st.markdown(f"**Issue Type:** `{s_type}`")
+                st.markdown(f"**Severity:** `{s_sev}`")
+                st.markdown(f"**Detected By:** `{s_by}`")
+                st.markdown(f"**Logged At:** `{s_date}`")
+            st.markdown("---")
+            st.markdown("**📝 Issue Description:**")
+            st.info(s_desc)
+            if s_notes:
+                st.markdown("**💡 Developer Explanation & Fix Instructions:**")
+                st.success(s_notes)
+            img_cols = st.columns(3)
+            for i, fld in enumerate(("image1", "image2", "image3")):
+                data_str = clean_str(row.get(fld))
+                if data_str:
+                    with img_cols[i]:
+                        try:
+                            st.image(base64.b64decode(data_str), caption=f"Proof {i + 1} ({s_icon})", use_container_width=True)
+                        except Exception:
+                            pass
+            if can_execute:
+                st.markdown("---")
+                with st.form(key=f"pp_scr_upd_{s_id}_{idx}"):
+                    st.markdown(f"### ✏️ Update Screen Issue ({s_id})")
+                    u1, u2 = st.columns(2)
+                    with u1:
+                        u_icon = st.text_input("Screen Icon Number", value=s_icon)
+                        u_mod = st.text_input("Module / Feature Name", value=s_mod)
+                        u_screen = st.text_input("Screen Name / Component", value=s_screen)
+                    with u2:
+                        u_lang = st.selectbox("Language Affected", lang_list, index=_pp_idx(lang_list, s_lang))
+                        u_type = st.selectbox("Issue Type", type_list, index=_pp_idx(type_list, s_type))
+                        u_sev = st.selectbox("Severity", PP_SEVERITY, index=_pp_idx(PP_SEVERITY, s_sev, 1))
+                    u_desc = st.text_area("Issue Description", value=s_desc)
+                    u_notes = st.text_area("Developer Explanation / Fix Instructions", value=s_notes)
+                    if st.form_submit_button(f"💾 Save Changes for ({s_id})", use_container_width=True):
+                        if not u_icon.upper().startswith("ICON"):
+                            st.error("Icon number must start with 'ICON'.")
+                        else:
+                            conn = get_db_connection()
+                            if conn:
+                                try:
+                                    cur = conn.cursor()
+                                    cur.execute("""UPDATE preprod_screen_issues SET icon_number=%s, module_name=%s, screen_name=%s, language=%s,
+                                                   issue_type=%s, severity=%s, description=%s, developer_notes=%s WHERE issue_id=%s AND module_name=%s""",
+                                                (u_icon.strip(), u_mod.strip(), u_screen.strip(), u_lang, u_type, u_sev, u_desc, u_notes, s_id, s_mod))
+                                    conn.commit()
+                                    cur.close()
+                                    conn.close()
+                                    st.session_state["pp_flash"] = f"Screen issue {s_id} updated."
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error updating screen issue: {e}")
+                if st.button(f"🗑️ Delete Resolved Screen Issue ({s_id})", key=f"pp_scr_del_{s_id}_{idx}", use_container_width=True):
+                    conn = get_db_connection()
+                    if conn:
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM preprod_screen_issues WHERE issue_id=%s AND module_name=%s", (s_id, s_mod))
+                            conn.commit()
+                            cur.close()
+                            conn.close()
+                            st.session_state["pp_flash"] = f"Screen issue {s_id} deleted."
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting screen issue: {e}")
+
 
 def render_stored_receipt(receipt_data):
     """Safely renders stored BYTEA receipt images."""
@@ -1643,6 +2754,14 @@ st.markdown("""
     .mc-fail { background: #fee2e2; color: #991b1b; }
     .mc-blocked { background: #fef3c7; color: #92400e; }
     .mc-pending { background: #e2e8f0; color: #475569; }
+
+    /* ---------- Larger, easier-to-read test execution forms ---------- */
+    [data-testid="stExpander"] summary p { font-size: 16px !important; }
+    [data-testid="stExpander"] label p, [data-testid="stForm"] label p { font-size: 15.5px !important; font-weight: 600 !important; }
+    [data-testid="stExpander"] input, [data-testid="stExpander"] textarea,
+    [data-testid="stForm"] input, [data-testid="stForm"] textarea { font-size: 16px !important; }
+    [data-testid="stExpander"] [data-baseweb="select"] *, [data-testid="stForm"] [data-baseweb="select"] * { font-size: 15.5px !important; }
+    [data-testid="stExpander"] button p, [data-testid="stForm"] button p { font-size: 15.5px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2219,13 +3338,18 @@ elif menu == "🚀 Pre-Production Testing":
         except Exception as e:
             st.error(f"Database fetch error (Make sure migration script was run): {e}")
 
+    if not st.session_state.get("pp_tables_ready"):
+        st.session_state["pp_tables_ready"] = ensure_preprod_defect_tables()
+
     if not mat_df.empty or not exec_df.empty:
         preprod_tabs = st.tabs([
             "📊 Summary Dashboard", 
             "💳 Withdrawal Card Matrix", 
             "📋 All Transactions Execution Report", 
             "✏️ Quick Edit Matrix", 
-            "🧪 Interactive Test Runner"
+            "🧪 Interactive Test Runner",
+            "🛠️ Defect Tracker",
+            "🎨 Screen Issues"
         ])
 
         # --- TAB 1: SUMMARY DASHBOARD ---
@@ -2300,7 +3424,7 @@ elif menu == "🚀 Pre-Production Testing":
                 return img.height * 0.75 + 8  # px -> points, plus padding
 
 
-            def generate_styled_uat_excel(mat_df, exec_df, receipt_images=None):
+            def generate_styled_uat_excel(mat_df, exec_df, receipt_images=None, keep_order=False):
                 """
                 Professional multi-sheet UAT workbook:
                   Summary | Withdrawal Summary | Withdrawal - Card Matrix | Execution Report
@@ -2311,8 +3435,10 @@ elif menu == "🚀 Pre-Production Testing":
                 from openpyxl.chart import BarChart, Reference
                 from openpyxl.worksheet.properties import PageSetupProperties
 
-                mat_df = natural_sort_df(mat_df if mat_df is not None else pd.DataFrame())
-                exec_df = natural_sort_df(exec_df if exec_df is not None else pd.DataFrame())
+                mat_df = mat_df if mat_df is not None else pd.DataFrame()
+                exec_df = exec_df if exec_df is not None else pd.DataFrame()
+                if not keep_order:                      # default: always Test-Case-ID order
+                    mat_df, exec_df = natural_sort_df(mat_df), natural_sort_df(exec_df)
 
                 # ---------- palette & styles ----------
                 FONT = "Calibri"
@@ -2781,14 +3907,16 @@ elif menu == "🚀 Pre-Production Testing":
             #         tc_id = file.name.split(".")[0]  # Or match your naming convention
             #         receipt_images[tc_id] = file
 
-            # 2. Side-by-side download buttons
+            # 2. Choose scope (all / filtered + sorted), then side-by-side download buttons
+            dl_mat, dl_exec, dl_keep_order, dl_scope = preprod_download_selector(mat_df, exec_df)
+            _dl_tag = "" if dl_scope == "All" else "_Filtered"
             col1, col2 = st.columns(2)
 
             with col1:
                 st.download_button(
                     label="📥 Download Professional UAT Report (.xlsx)",
-                    data=generate_styled_uat_excel(mat_df, exec_df, receipt_images),
-                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    data=generate_styled_uat_excel(dl_mat, dl_exec, receipt_images, keep_order=dl_keep_order),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Report{_dl_tag}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
@@ -2796,8 +3924,8 @@ elif menu == "🚀 Pre-Production Testing":
             with col2:
                 st.download_button(
                     label="📄 Download PDF Summary Report (.pdf)",
-                    data=generate_uat_pdf_report(exec_df),
-                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Summary_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    data=generate_uat_pdf_report(dl_exec),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Summary{_dl_tag}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
@@ -2809,6 +3937,8 @@ elif menu == "🚀 Pre-Production Testing":
             sel_scheme = st.selectbox("Filter by Card Scheme", ["All"] + schemes, key="db_pre_mat_scheme")
             
             filtered_mat = mat_df if sel_scheme == "All" else mat_df[mat_df['card_scheme'] == sel_scheme]
+            filtered_mat = filter_by_date(filtered_mat, "execution_date", date_filter_controls("pp_mat_date", "Executed Date"))
+            st.caption(f"Showing {len(filtered_mat)} of {len(mat_df)} test cases")
             st.dataframe(prepare_display_df(filtered_mat), use_container_width=True, hide_index=True)
 
         # --- TAB 3: EXECUTION REPORT (ALL TRANSACTIONS) ---
@@ -2818,6 +3948,8 @@ elif menu == "🚀 Pre-Production Testing":
             sel_cat = st.selectbox("Filter by Category", ["All"] + categories, key="db_pre_exec_cat")
             
             filtered_exec = exec_df if sel_cat == "All" else exec_df[exec_df['transaction_category'] == sel_cat]
+            filtered_exec = filter_by_date(filtered_exec, "execution_date", date_filter_controls("pp_exec_date", "Executed Date"))
+            st.caption(f"Showing {len(filtered_exec)} of {len(exec_df)} test cases")
             st.dataframe(prepare_display_df(filtered_exec), use_container_width=True, hide_index=True)
 
         # --- TAB 4: UPDATE TEST EXECUTION (TESTER MODE) ---
@@ -2836,6 +3968,7 @@ elif menu == "🚀 Pre-Production Testing":
                     table_name = "preprod_all_transactions"
                     active_df = exec_df
 
+                active_df = filter_by_date(active_df, "execution_date", date_filter_controls("pp_qe_date", "Executed Date"))
                 available_ids = active_df['tc_id'].dropna().unique().tolist() if not active_df.empty else []
                 selected_tc_id = st.selectbox("Select Test Case ID to Execute / Update", available_ids, key="db_pre_upd_tc")
 
@@ -2844,7 +3977,7 @@ elif menu == "🚀 Pre-Production Testing":
 
                     # --- LOCKED MASTER DEFINITION DISPLAY ---
                     st.markdown("---")
-                    _cur_status = row_data.get('overall_status') or 'NOT EXECUTED'
+                    _cur_status = clean_str(row_data.get('overall_status')) or 'NOT EXECUTED'
                     if table_name == "preprod_withdrawal_matrix":
                         render_master_card("Master Test Case Details", [
                             ("TC ID", row_data.get('tc_id')), ("Card Scheme", row_data.get('card_scheme')),
@@ -2870,7 +4003,7 @@ elif menu == "🚀 Pre-Production Testing":
                                 withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"wamt_{selected_tc_id}")
                                 atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"atm_{selected_tc_id}")
                                 acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"acc_{selected_tc_id}")
-                                rrn_in = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"rrn_{selected_tc_id}")
+                                rrn_in = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"rrn_{selected_tc_id}")
                                 stan_in = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"stan_{selected_tc_id}")
                                 
                                 curr_fe = str(get_val(row, 'fe_status', 'NOT EXECUTED')).upper().strip()
@@ -2899,6 +4032,7 @@ elif menu == "🚀 Pre-Production Testing":
                             rem_in = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"rem_{selected_tc_id}")
 
                             if st.form_submit_button(f"💾 Save Withdrawal Execution ({selected_tc_id})", type="primary"):
+                                rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                 receipt_bytes_to_save = existing_receipt_bytes
                                 if uploaded_file is not None:
                                     receipt_bytes_to_save = uploaded_file.getvalue()
@@ -2918,6 +4052,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             fe_in, sibs_val, receipt_bytes_to_save, new_st, str(exec_date_in), 
                                             tester_in, rem_in, selected_tc_id
                                         ))
+                                        sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row_data), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                         conn_run.commit()
                                         cur.close()
                                         conn_run.close()
@@ -2932,7 +4067,7 @@ elif menu == "🚀 Pre-Production Testing":
                             with col_u1:
                                 acc_ref_ex = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"exec_acc_{selected_tc_id}")
                                 amount_val = st.number_input("Amount", value=float(get_val(row, 'amount', 0.0) or 0.0), key=f"exec_amt_{selected_tc_id}")
-                                rrn_val = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"exec_rrn_{selected_tc_id}")
+                                rrn_val = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"exec_rrn_{selected_tc_id}")
                                 stan_val = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"exec_stan_{selected_tc_id}")
                                 before_bal = st.number_input("Before Balance", value=float(get_val(row, 'before_balance', 0.0) or 0.0), key=f"exec_bb_{selected_tc_id}")
                                 after_bal = st.number_input("After Balance", value=float(get_val(row, 'after_balance', 0.0) or 0.0), key=f"exec_ab_{selected_tc_id}")
@@ -2967,6 +4102,7 @@ elif menu == "🚀 Pre-Production Testing":
                             remarks_val = st.text_area("Remarks / Failure Notes", value=str(get_val(row, 'remarks', '')), key=f"exec_rem_{selected_tc_id}")
 
                             if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
+                                rrn_val = pp_derive_rrn(stan_val, rrn_val)   # RRN = STAN/UTANO without its first 6 digits
                                 receipt_bytes_to_save = existing_receipt_bytes
                                 if uploaded_file is not None:
                                     receipt_bytes_to_save = uploaded_file.getvalue()
@@ -2986,6 +4122,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             fe_val, switch_val, sibs_val, receipt_bytes_to_save, new_status, 
                                             str(exec_date_val), tester_val, remarks_val, selected_tc_id
                                         ))
+                                        sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row_data), new_status, tester_val, stan_val, rrn_val, exec_date_val, remarks_val)
                                         conn_upd.commit()
                                         cur.close()
                                         conn_upd.close()
@@ -3019,11 +4156,12 @@ elif menu == "🚀 Pre-Production Testing":
                 elif 'tc_id' in run_df.columns and 'transaction_description' in run_df.columns:
                     run_df = run_df[run_df['tc_id'].str.contains(search_query, case=False, na=False) | run_df['transaction_description'].str.contains(search_query, case=False, na=False)]
 
+            run_df = filter_by_date(run_df, "execution_date", date_filter_controls("pp_run_date", "Executed Date"))
             if run_df.empty:
-                st.info("No test cases match your search query.")
+                st.info("No test cases match your search / date filter.")
             else:
                 for idx, row in run_df.iterrows():
-                    stat = str(row.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                    stat = (clean_str(row.get('overall_status')) or 'NOT EXECUTED').upper()
                     badge = "🟢" if stat == 'PASS' else ("🔴" if stat == 'FAIL' else ("🟡" if stat == 'BLOCKED' else "🔵"))
                     
                     desc_label = row.get('transaction_description', '') if 'transaction_description' in run_df.columns else f"{row.get('card_scheme', '')} - {row.get('card_type', '')} ({row.get('account_type', '')})"
@@ -3069,7 +4207,7 @@ elif menu == "🚀 Pre-Production Testing":
                                     withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"run_wamt_{row.get('tc_id')}_{idx}")
                                     atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"run_atm_{row.get('tc_id')}_{idx}")
                                     acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"run_accref_{row.get('tc_id')}_{idx}")
-                                    rrn_in = st.text_input("RRN", value=str(get_val(row, 'rrn', '')), key=f"run_rrn_{row.get('tc_id')}_{idx}")
+                                    rrn_in = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"run_rrn_{row.get('tc_id')}_{idx}")
                                     stan_in = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"run_stan_{row.get('tc_id')}_{idx}")
                                     
                                     # FE Status Dropdown
@@ -3118,6 +4256,7 @@ elif menu == "🚀 Pre-Production Testing":
 
                                 # --- FORM SUBMISSION & DB SAVE ---
                                 if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary"):
+                                    rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                     receipt_bytes_to_save = existing_receipt_bytes
                                     if uploaded_file is not None:
                                         receipt_bytes_to_save = uploaded_file.getvalue()
@@ -3144,6 +4283,7 @@ elif menu == "🚀 Pre-Production Testing":
                                                 row.get('card_type'), 
                                                 row.get('issuing_bank')
                                             ))
+                                            sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                             conn_run.commit()
                                             cur.close()
                                             conn_run.close()
@@ -3158,26 +4298,26 @@ elif menu == "🚀 Pre-Production Testing":
                                 status_opts = ["NOT EXECUTED", "PASS", "FAIL", "BLOCKED"]
                                 
                                 with c_f1:
-                                    acc_ref_ex = st.text_input("Account / Reference No.", value=str(row.get('account_reference_no', '') or ''), key=f"run_exec_accref_{idx}")
-                                    amount_val = st.number_input("Amount", value=float(row.get('amount') or 0.0), key=f"run_exec_amt_{idx}")
-                                    rrn_in = st.text_input("RRN", value=str(row.get('rrn', '') or ''), key=f"run_exec_rrn_{idx}")
-                                    stan_in = st.text_input("STAN / UTANO", value=str(row.get('stan_utano', '') or ''), key=f"run_exec_stan_{idx}")
-                                    before_bal = st.number_input("Before Balance", value=float(row.get('before_balance') or 0.0), key=f"run_exec_bb_{idx}")
-                                    after_bal = st.number_input("After Balance", value=float(row.get('after_balance') or 0.0), key=f"run_exec_ab_{idx}")
+                                    acc_ref_ex = st.text_input("Account / Reference No.", value=(clean_str(row.get('account_reference_no')) or ''), key=f"run_exec_accref_{idx}")
+                                    amount_val = st.number_input("Amount", value=clean_num(row.get('amount')), key=f"run_exec_amt_{idx}")
+                                    rrn_in = st.text_input("RRN (auto-filled from STAN / UTANO)", value=(clean_str(row.get('rrn')) or ''), key=f"run_exec_rrn_{idx}")
+                                    stan_in = st.text_input("STAN / UTANO", value=(clean_str(row.get('stan_utano')) or ''), key=f"run_exec_stan_{idx}")
+                                    before_bal = st.number_input("Before Balance", value=clean_num(row.get('before_balance')), key=f"run_exec_bb_{idx}")
+                                    after_bal = st.number_input("After Balance", value=clean_num(row.get('after_balance')), key=f"run_exec_ab_{idx}")
                                     
                                 with c_f2:
                                     # FE Status Dropdown
-                                    curr_fe = str(row.get('fe_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    curr_fe = (clean_str(row.get('fe_status')) or 'NOT EXECUTED').upper().strip()
                                     if curr_fe not in status_opts: curr_fe = "NOT EXECUTED"
                                     fe_in = st.selectbox("FE Status", status_opts, index=status_opts.index(curr_fe) if curr_fe in status_opts else 0, key=f"run_exec_fe_{idx}")
                                     
                                     # Switch Status Dropdown
-                                    curr_switch = str(row.get('switch_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    curr_switch = (clean_str(row.get('switch_status')) or 'NOT EXECUTED').upper().strip()
                                     if curr_switch not in status_opts: curr_switch = "NOT EXECUTED"
                                     switch_in = st.selectbox("Switch Status", status_opts, index=status_opts.index(curr_switch) if curr_switch in status_opts else 0, key=f"run_exec_switch_{idx}")
                                     
                                     # SIBS / CBS Status Dropdown
-                                    curr_sibs = str(row.get('sibs_status', 'NOT EXECUTED') or 'NOT EXECUTED').upper().strip()
+                                    curr_sibs = (clean_str(row.get('sibs_status')) or 'NOT EXECUTED').upper().strip()
                                     if curr_sibs not in status_opts: curr_sibs = "NOT EXECUTED"
                                     sibs_in = st.selectbox("SIBS / CBS Status", status_opts, index=status_opts.index(curr_sibs) if curr_sibs in status_opts else 0, key=f"run_exec_sibs_{idx}")
                                     
@@ -3193,7 +4333,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             pass
 
                                     # Overall Status Dropdown
-                                    curr_st = str(stat if 'stat' in locals() and stat else row.get('overall_status', 'NOT EXECUTED')).upper().strip()
+                                    curr_st = (stat if 'stat' in locals() and stat else (clean_str(row.get('overall_status')) or 'NOT EXECUTED')).upper().strip()
                                     if curr_st not in status_opts: curr_st = "NOT EXECUTED"
                                     new_st = st.selectbox("Overall Status", status_opts, index=status_opts.index(curr_st) if curr_st in status_opts else 0, key=f"run_exec_st_{idx}")
                                     
@@ -3208,11 +4348,12 @@ elif menu == "🚀 Pre-Production Testing":
                                         parsed_date = datetime.now().date()
                                     
                                     exec_date_in = st.date_input("Execution Date", value=parsed_date, key=f"run_exec_date_{idx}")
-                                    tester_in = st.text_input("Tester Name", value=str(row.get('tester', st.session_state.get('logged_user', '')) or ''), key=f"run_exec_tester_{idx}")
+                                    tester_in = st.text_input("Tester Name", value=(clean_str(row.get('tester')) or clean_str(st.session_state.get('logged_user', ''))), key=f"run_exec_tester_{idx}")
 
-                                rem_in = st.text_area("Remarks / Failure Notes", value=str(row.get('remarks', '') or ''), key=f"run_exec_rem_{idx}")
+                                rem_in = st.text_area("Remarks / Failure Notes", value=(clean_str(row.get('remarks')) or ''), key=f"run_exec_rem_{idx}")
 
                                 if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
+                                    rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                     receipt_bytes_to_save = existing_receipt_bytes
                                     if uploaded_file is not None:
                                         receipt_bytes_to_save = uploaded_file.getvalue()
@@ -3255,6 +4396,7 @@ elif menu == "🚀 Pre-Production Testing":
                                                 str(rem_in), 
                                                 str(row.get('tc_id', ''))
                                             ))
+                                            sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row), new_st, tester_in, stan_in, rrn_in, exec_date_in, rem_in)
                                             conn_upd.commit()
                                             cur.close()
                                             conn_upd.close()
@@ -3263,6 +4405,13 @@ elif menu == "🚀 Pre-Production Testing":
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Update failed: {e}")
+        # --- TAB 6: DEFECT TRACKER (failed test cases are added automatically) ---
+        with preprod_tabs[5]:
+            render_preprod_defect_tracker(can_execute)
+
+        # --- TAB 7: UI / SCREEN ISSUES ---
+        with preprod_tabs[6]:
+            render_preprod_screen_issues(can_execute)
     else:
         st.info("No records found in Supabase pre-production tables. Please run your migration script first.")
 
