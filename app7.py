@@ -21,104 +21,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 # ---------------------------------------------------------
 # POSTGRESQL / SUPABASE DATABASE CONNECTION
 # ---------------------------------------------------------
-import time as _time
-from psycopg2 import pool as _pg_pool
-import psycopg2.extensions as _pg_ext
-
-_PP_LAST_USED = {}
-
-
-@st.cache_resource(show_spinner=False)
-def _get_pg_pool():
-    """One shared pool of open connections. Opening a new connection to Supabase for every query was the main
-    reason saving felt slow (each login = several network round-trips)."""
-    return _pg_pool.ThreadedConnectionPool(
-        1, 10, st.secrets["postgres"]["url"], connect_timeout=15,
-        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
-
-
-class _PooledConn:
-    """Behaves like a normal psycopg2 connection, but close() hands it back to the pool."""
-    def __init__(self, raw, owner_pool):
-        object.__setattr__(self, "_raw", raw)
-        object.__setattr__(self, "_pool", owner_pool)
-        object.__setattr__(self, "_done", False)
-
-    def __getattr__(self, name):
-        return getattr(self._raw, name)
-
-    def __setattr__(self, name, value):
-        setattr(self._raw, name, value)
-
-    def __enter__(self):
-        self._raw.__enter__()
-        return self
-
-    def __exit__(self, *exc):
-        return self._raw.__exit__(*exc)
-
-    def close(self):
-        if self._done:
-            return
-        object.__setattr__(self, "_done", True)
-        raw = self._raw
-        try:
-            if self._pool is None:                       # direct (non-pooled) fallback connection
-                raw.close()
-            elif raw.closed:
-                self._pool.putconn(raw, close=True)
-            else:
-                if raw.status != _pg_ext.STATUS_READY:
-                    raw.rollback()
-                _PP_LAST_USED[id(raw)] = _time.time()
-                self._pool.putconn(raw)
-        except Exception:
-            try:
-                raw.close()
-            except Exception:
-                pass
-
-    def __del__(self):
-        try:
-            self.close()
-        except Exception:
-            pass
-
-
 def get_db_connection():
     try:
         db_url = st.secrets["postgres"]["url"]
-    except Exception as e:
-        st.error(f"PostgreSQL Connection Failed: {e}")
-        return None
-    try:
-        pl = _get_pg_pool()
-    except Exception:
-        pl = None
-    if pl is not None:
-        for _ in range(3):
-            try:
-                raw = pl.getconn()
-            except Exception:
-                break                                    # pool busy / unavailable -> direct connection below
-            try:
-                if raw.closed:
-                    pl.putconn(raw, close=True)
-                    continue
-                if _time.time() - _PP_LAST_USED.get(id(raw), 0) > 20:    # idle a while: make sure it is still alive
-                    c = raw.cursor()
-                    c.execute("SELECT 1")
-                    c.close()
-                    raw.rollback()
-                _PP_LAST_USED[id(raw)] = _time.time()
-                return _PooledConn(raw, pl)
-            except Exception:
-                try:
-                    pl.putconn(raw, close=True)
-                except Exception:
-                    pass
-    try:
-        return _PooledConn(psycopg2.connect(db_url, connect_timeout=15), None)
+        conn = psycopg2.connect(db_url)
+        return conn
     except Exception as e:
         st.error(f"PostgreSQL Connection Failed: {e}")
         return None
@@ -329,11 +236,7 @@ def natural_sort_df(df, col="tc_id"):
 def prepare_display_df(df):
     """Table-friendly copy: raw receipt bytes -> readable marker, status columns colour-coded."""
     d = df.copy()
-    d = d.drop(columns=[c for c in ("row_id",) if c in d.columns])
-    if "has_receipt" in d.columns:
-        d["receipt_output"] = d["has_receipt"].map(lambda b: "📎 Attached" if bool(b) else "—")
-        d = d.drop(columns=["has_receipt"])
-    elif "receipt_output" in d.columns:
+    if "receipt_output" in d.columns:
         d["receipt_output"] = d["receipt_output"].map(
             lambda v: "📎 Attached" if isinstance(v, (bytes, bytearray, memoryview)) and len(v) > 0 else "—")
     def _c(v):
@@ -377,259 +280,6 @@ def render_master_card(title, fields, description=None, status=None):
 # PRE-PRODUCTION: shared helpers (clean values, RRN, dates, downloads)
 # =========================================================
 from xml.sax.saxutils import escape as _xml_escape
-import io
-import base64
-import hashlib as _hashlib
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-from openpyxl.drawing.image import Image as OpenPyXLImage
-from PIL import Image as PILImage
-
-# ---------------------------------------------------------
-# PRE-PRODUCTION: speed helpers (small cached reads, lazy photos, compressed uploads)
-# ---------------------------------------------------------
-def pp_compress_image(raw, max_px=1600, quality=82):
-    """Phone photos are several MB. Shrink to a sharp ~200-400 KB JPEG so saving / loading stays fast."""
-    if raw is None:
-        return None
-    raw = bytes(raw)
-    if not raw:
-        return None
-    try:
-        im = PILImage.open(io.BytesIO(raw))
-        try:
-            from PIL import ImageOps
-            im = ImageOps.exif_transpose(im)          # keep phone photos upright
-        except Exception:
-            pass
-        im = im.convert("RGB")
-        im.thumbnail((max_px, max_px))
-        out = io.BytesIO()
-        im.save(out, format="JPEG", quality=quality, optimize=True)
-        data = out.getvalue()
-        return data if len(data) < len(raw) else raw
-    except Exception:
-        return raw
-
-
-def pp_assign_photo_slots(files, has_flags, remove_flags):
-    """Up to 3 proof photos per defect.
-    Returns (new_values[3], effective_remove[3], notice). Uploads fill the free (or removed) slots in order."""
-    files = list(files or [])
-    free = [i for i in range(3) if (not has_flags[i]) or remove_flags[i]]
-    new_vals = [None, None, None]
-    for f, slot in zip(files, free):
-        new_vals[slot] = pp_compress_image(f.getvalue())
-    notice = ""
-    if len(files) > len(free):
-        notice = f"Only {len(free)} photo slot(s) were free – {len(files) - len(free)} extra photo(s) were not saved. Tick 'Remove saved photo' to free a slot."
-    effective_remove = [bool(remove_flags[i]) and new_vals[i] is None for i in range(3)]
-    return new_vals, effective_remove, notice
-
-
-def pp_fingerprint(*parts):
-    """Cheap fingerprint of the data a report is built from (so a prepared report is rebuilt only when data changes)."""
-    h = _hashlib.md5()
-    for p in parts:
-        if isinstance(p, pd.DataFrame):
-            cols = [c for c in ("row_id", "id", "tc_id", "defect_ref", "overall_status", "defect_status", "execution_date",
-                                "has_receipt", "has_proof1", "has_proof2", "has_proof3", "updated_at", "remarks", "rrn",
-                                "stan_utano", "issue_id", "module_name", "severity", "transaction_description",
-                                "transaction_category", "card_scheme", "card_type", "issuing_bank", "account_type",
-                                "description", "developer_notes", "screen_name", "icon_number", "language", "issue_type",
-                                "defect_desc", "steps_to_reproduce", "expected_result", "assigned_to") if c in p.columns]
-            h.update(p[cols].astype(str).to_csv(index=False).encode("utf-8", "ignore") if cols else b"-")
-        else:
-            h.update(str(p).encode("utf-8", "ignore"))
-    return h.hexdigest()
-
-
-@st.cache_data(ttl=20, show_spinner=False)
-def pp_fetch_table(table, exclude=("receipt_output",), flags=()):
-    """Reads a table WITHOUT the heavy image columns (adds has_receipt / has_* flags instead).
-    Cached for 20 s and cleared automatically after any save, so screens stay quick."""
-    conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position", (table,))
-        cols = [r[0] for r in cur.fetchall()]
-        cur.close()
-        if not cols:
-            raise RuntimeError(f"table {table} was not found")
-        sel = ", ".join(f'"{c}"' for c in cols if c not in exclude)
-        extra = ""
-        if "receipt_output" in cols:
-            extra += ", (receipt_output IS NOT NULL AND octet_length(receipt_output) > 0) AS has_receipt"
-        else:
-            extra += ", FALSE AS has_receipt"
-        for fl in flags:                                   # e.g. ("proof1",) -> has_proof1
-            if fl in cols:
-                extra += f", ({fl} IS NOT NULL AND octet_length({fl}) > 0) AS has_{fl}"
-            else:
-                extra += f", FALSE AS has_{fl}"
-        return pd.read_sql(f"SELECT {sel}{extra} FROM public.{table}", con=conn)
-    finally:
-        conn.close()
-
-
-def pp_attach_receipts(df, table):
-    """Adds the receipt image bytes (receipt_output) for the given rows – used only when building reports."""
-    d = df.copy()
-    d["receipt_output"] = None
-    if d.empty or "has_receipt" not in d.columns:
-        return d
-    need = d[d["has_receipt"].fillna(False).astype(bool)]
-    if need.empty:
-        return d
-    key = "row_id" if "row_id" in d.columns else "tc_id"
-    ids = [int(x) for x in need[key]] if key == "row_id" else [str(x) for x in need[key]]
-    conn = get_db_connection()
-    if not conn:
-        return d
-    try:
-        cur = conn.cursor()
-        cur.execute(f"SELECT {key}, receipt_output FROM public.{table} WHERE {key} = ANY(%s) AND receipt_output IS NOT NULL", (ids,))
-        found = {k: bytes(v) for k, v in cur.fetchall() if v}
-        cur.close()
-        d["receipt_output"] = [found.get(int(k) if key == "row_id" else str(k)) for k in d[key]]
-    except Exception:
-        pass
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-    return d
-
-
-def pp_get_receipt(table, row):
-    """One receipt, loaded only when the tester asks to view it."""
-    conn = get_db_connection()
-    if not conn:
-        return None
-    try:
-        cur = conn.cursor()
-        if "row_id" in row and clean_str(row.get("row_id")):
-            cur.execute(f"SELECT receipt_output FROM public.{table} WHERE row_id = %s", (int(row["row_id"]),))
-        else:
-            cur.execute(f"SELECT receipt_output FROM public.{table} WHERE tc_id = %s LIMIT 1", (clean_str(row.get("tc_id")),))
-        res = cur.fetchone()
-        cur.close()
-        return bytes(res[0]) if res and res[0] else None
-    except Exception:
-        return None
-    finally:
-        conn.close()
-
-
-def pp_view_saved_receipt(table, row, key):
-    """Outside the form: view the saved receipt on demand (nothing is downloaded until ticked)."""
-    if not bool(row.get("has_receipt")):
-        return
-    if st.checkbox("👁️ View saved receipt", key=f"pp_view_{key}"):
-        raw = pp_get_receipt(table, row)
-        if raw:
-            render_stored_receipt(raw)
-        else:
-            st.caption("No receipt found.")
-
-
-def pp_remove_receipt_checkbox(row, key):
-    """Inside the form: lets the tester remove the saved receipt together with the update."""
-    if bool(row.get("has_receipt")):
-        st.caption("📎 A receipt is already saved. Upload a new image to replace it, or tick below to remove it.")
-        return st.checkbox("🗑️ Remove the saved receipt when I save", key=f"pp_rmrec_{key}", value=False)
-    return False
-
-
-def pp_get_defect_proofs(defect_id):
-    conn = get_db_connection()
-    if not conn:
-        return [None, None, None]
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT proof1, proof2, proof3 FROM preprod_defects WHERE id = %s", (int(defect_id),))
-        res = cur.fetchone()
-        cur.close()
-        return [bytes(x) if x else None for x in (res or (None, None, None))]
-    except Exception:
-        return [None, None, None]
-    finally:
-        conn.close()
-
-
-def pp_show_defect_proofs(defect_id):
-    cols = st.columns(3)
-    for i, raw in enumerate(pp_get_defect_proofs(defect_id)):
-        if raw:
-            with cols[i]:
-                st.image(raw, caption=f"Proof photo {i + 1}", use_container_width=True)
-
-
-@st.cache_data(ttl=20, show_spinner=False)
-def pp_fetch_screen_issues():
-    """Screen issues without the (large) screenshots; has_img1..3 tell which ones exist."""
-    conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
-    try:
-        return pd.read_sql("""
-            SELECT issue_id, module_name, screen_name, language, issue_type, severity, description, developer_notes,
-                   detected_by, created_at, icon_number,
-                   (COALESCE(image1, '') <> '') AS has_img1, (COALESCE(image2, '') <> '') AS has_img2,
-                   (COALESCE(image3, '') <> '') AS has_img3
-            FROM public.preprod_screen_issues""", con=conn)
-    finally:
-        conn.close()
-
-
-def pp_get_screen_images(issue_id, module_name):
-    conn = get_db_connection()
-    if not conn:
-        return ["", "", ""]
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT image1, image2, image3 FROM preprod_screen_issues WHERE issue_id = %s AND module_name = %s", (issue_id, module_name))
-        res = cur.fetchone()
-        cur.close()
-        return [x or "" for x in (res or ("", "", ""))]
-    except Exception:
-        return ["", "", ""]
-    finally:
-        conn.close()
-
-
-def pp_attach_screen_images(df):
-    """Adds image1..3 (base64) for the given issues – used only when building the Excel / PDF."""
-    d = df.copy()
-    for k in ("image1", "image2", "image3"):
-        d[k] = ""
-    if d.empty:
-        return d
-    pairs = [(clean_str(a), clean_str(b)) for a, b in zip(d["issue_id"], d["module_name"])]
-    conn = get_db_connection()
-    if not conn:
-        return d
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT issue_id, module_name, image1, image2, image3 FROM preprod_screen_issues WHERE (issue_id, module_name) IN %s", (tuple(pairs),))
-        found = {(r[0], r[1]): (r[2] or "", r[3] or "", r[4] or "") for r in cur.fetchall()}
-        cur.close()
-        for k_i, k in enumerate(("image1", "image2", "image3")):
-            d[k] = [found.get(p, ("", "", ""))[k_i] for p in pairs]
-    except Exception:
-        pass
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-    return d
-
-
 
 PP_SEVERITY = ["Low", "Medium", "High", "Critical"]
 PP_PRIORITY = ["Low", "Moderate", "High"]
@@ -660,18 +310,12 @@ CREATE TABLE IF NOT EXISTS public.preprod_defects (
     utano            VARCHAR(100),                   -- UTANO / Bill Number
     rrn              VARCHAR(50),
     execution_date   VARCHAR(50),
-    proof1           BYTEA,                          -- receipt / photo proof 1
-    proof2           BYTEA,                          -- receipt / photo proof 2
-    proof3           BYTEA,                          -- receipt / photo proof 3
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT preprod_defects_case_uk UNIQUE (suite, case_key)
 );
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_status ON public.preprod_defects (defect_status);
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_date   ON public.preprod_defects (execution_date);
-ALTER TABLE public.preprod_defects ADD COLUMN IF NOT EXISTS proof1 BYTEA;
-ALTER TABLE public.preprod_defects ADD COLUMN IF NOT EXISTS proof2 BYTEA;
-ALTER TABLE public.preprod_defects ADD COLUMN IF NOT EXISTS proof3 BYTEA;
 
 CREATE TABLE IF NOT EXISTS public.preprod_screen_issues (
     issue_id        VARCHAR(100) NOT NULL,
@@ -871,53 +515,25 @@ def preprod_download_selector(mat_df, exec_df):
 # PRE-PRODUCTION: defect database helpers
 # =========================================================
 def ensure_preprod_defect_tables():
-    """Creates / upgrades the pre-prod tables when something is missing (safe to run repeatedly):
-    preprod_defects (+ proof photo columns), preprod_screen_issues, and a row_id key on both test-case tables."""
+    """Creates preprod_defects / preprod_screen_issues if they do not exist yet (safe to run repeatedly)."""
     conn = get_db_connection()
     if not conn:
         return False
-    ok = True
     try:
         cur = conn.cursor()
-        cur.execute("""SELECT
-            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_defects' AND column_name='proof3'),
-            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_screen_issues' AND column_name='issue_id'),
-            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_withdrawal_matrix' AND column_name='row_id'),
-            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_all_transactions' AND column_name='row_id')""")
-        have = cur.fetchone()
-        conn.rollback()
+        cur.execute(PP_SCHEMA_SQL)
+        conn.commit()
         cur.close()
-        if have and all(int(x) > 0 for x in have):
-            conn.close()
-            return True
-        steps = []
-        if not (have and int(have[0]) > 0 and int(have[1]) > 0):
-            steps.append(PP_SCHEMA_SQL)
-        if not (have and int(have[2]) > 0):
-            steps.append("ALTER TABLE public.preprod_withdrawal_matrix ADD COLUMN IF NOT EXISTS row_id BIGSERIAL")
-        if not (have and int(have[3]) > 0):
-            steps.append("ALTER TABLE public.preprod_all_transactions ADD COLUMN IF NOT EXISTS row_id BIGSERIAL")
-        for sql_ in steps:
-            try:
-                cur = conn.cursor()
-                cur.execute(sql_)
-                conn.commit()
-                cur.close()
-            except Exception:
-                ok = False
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-        st.cache_data.clear()
-    except Exception:
-        ok = False
-    finally:
+        conn.close()
+        return True
+    except Exception as e:
+        st.warning(f"Could not prepare the pre-production defect tables: {e}")
         try:
+            conn.rollback()
             conn.close()
         except Exception:
             pass
-    return ok
+        return False
 
 
 def pp_case_key(suite, tc_id, card_type="", issuing_bank="", account_type=""):
@@ -972,10 +588,17 @@ def sync_preprod_defect(cur, suite, ctx, new_status, tester, utano, rrn, exec_da
 
 
 def load_preprod_defects():
-    """Active defects without the (heavy) proof photos; has_proof1..3 flag which photos exist."""
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
     try:
-        df = pp_fetch_table("preprod_defects", exclude=("proof1", "proof2", "proof3"), flags=("proof1", "proof2", "proof3"))
+        df = pd.read_sql("SELECT * FROM preprod_defects", conn)
+        conn.close()
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
         return pd.DataFrame()
     return natural_sort_df(df, "defect_ref")
 
@@ -1008,7 +631,6 @@ def resolve_preprod_defect(defect):
             """, (today, note, note, defect["defect_ref"]))
         cur.execute("DELETE FROM preprod_defects WHERE id = %s", (int(defect["id"]),))
         conn.commit()
-        st.cache_data.clear()
         cur.close()
         conn.close()
         return True, ("Defect resolved – removed from the tracker and the test case was updated to PASS."
@@ -1023,11 +645,9 @@ def resolve_preprod_defect(defect):
 
 
 def attach_defect_receipts(df):
-    """Adds each defect's evidence for reports: the failed test case receipt + the defect's own proof photos."""
+    """Adds the tester's uploaded receipt (from the failed test case) so reports can show the evidence."""
     d = df.copy()
     d["receipt_output"] = None
-    for k in ("proof1", "proof2", "proof3"):
-        d[k] = None
     if d.empty:
         return d
     conn = get_db_connection()
@@ -1035,28 +655,23 @@ def attach_defect_receipts(df):
         return d
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, proof1, proof2, proof3 FROM preprod_defects WHERE id = ANY(%s)", ([int(x) for x in d["id"]],))
-        proofs = {int(row[0]): [bytes(x) if x else None for x in row[1:]] for row in cur.fetchall()}
-        for k_i, k in enumerate(("proof1", "proof2", "proof3")):
-            d[k] = [(proofs.get(int(i)) or [None, None, None])[k_i] for i in d["id"]]
-        for i, r_ in d.iterrows():
-            if r_["suite"] == "MATRIX":
+        for i, r in d.iterrows():
+            if r["suite"] == "MATRIX":
                 cur.execute("""SELECT receipt_output FROM preprod_withdrawal_matrix
                                WHERE tc_id = %s AND card_type IS NOT DISTINCT FROM %s
                                  AND issuing_bank IS NOT DISTINCT FROM %s AND account_type IS NOT DISTINCT FROM %s LIMIT 1""",
-                            (r_["defect_ref"], clean_str(r_.get("card_type")) or None,
-                             clean_str(r_.get("issuing_bank")) or None, clean_str(r_.get("account_type")) or None))
-            elif r_["suite"] == "EXEC":
-                cur.execute("SELECT receipt_output FROM preprod_all_transactions WHERE tc_id = %s LIMIT 1", (r_["defect_ref"],))
+                            (r["defect_ref"], clean_str(r.get("card_type")) or None,
+                             clean_str(r.get("issuing_bank")) or None, clean_str(r.get("account_type")) or None))
+            elif r["suite"] == "EXEC":
+                cur.execute("SELECT receipt_output FROM preprod_all_transactions WHERE tc_id = %s LIMIT 1", (r["defect_ref"],))
             else:
                 continue
             res = cur.fetchone()
             if res and res[0]:
                 d.at[i, "receipt_output"] = bytes(res[0])
         cur.close()
+        conn.close()
     except Exception:
-        pass
-    finally:
         try:
             conn.close()
         except Exception:
@@ -1088,8 +703,6 @@ def _pp_prepare_defect_records(df):
         r = dict(r)
         r["source_label"] = "Auto – Failed Test" if clean_str(r.get("source")).upper() == "AUTO" else "Manual"
         r["suite_label"] = suite_names.get(clean_str(r.get("suite")), clean_str(r.get("suite")))
-        _n = sum(1 for k in ("proof1", "proof2", "proof3") if isinstance(r.get(k), (bytes, bytearray, memoryview)) and len(r.get(k)) > 0)
-        r["proof_label"] = f"{_n} photo(s)" if _n else "—"
         recs.append(r)
     return recs
 
@@ -1250,7 +863,7 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
         ("Defect Description", "defect_desc", 46, "wrap"), ("Steps to Reproduce", "steps_to_reproduce", 46, "wrap"),
         ("Expected Result", "expected_result", 40, "wrap"), ("Detected By (Tester)", "detected_by", 20, "center"),
         ("UTANO / Bill Number", "utano", 24, "center"), ("RRN", "rrn", 16, "center"),
-        ("Executed / Logged Date", "execution_date", 16, "date"), ("Executed / Logged Time", "execution_date", 13, "time"), ("Proof Photos", "proof_label", 14, "center"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
+        ("Executed / Logged Date", "execution_date", 16, "date"), ("Executed / Logged Time", "execution_date", 13, "time"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
     ]
     ncols = len(cols)
     lc = get_column_letter(ncols)
@@ -1318,46 +931,6 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
     wr.freeze_panes = f"B{HDR + 1}"
     wr.sheet_properties.tabColor = "C00000"
     page_setup(wr, title_row=HDR)
-
-    # ================= EVIDENCE PHOTOS =================
-    ev = [x for x in recs if any(receipt_to_jpeg(x.get(k)) for k in ("receipt_output", "proof1", "proof2", "proof3"))]
-    if ev:
-        we = wb.create_sheet("Evidence Photos")
-        banner(we, 4, "DEFECT EVIDENCE – RECEIPTS & PHOTO PROOFS", "PEOPLE'S BANK  ·  Test case receipt and photo proofs attached to each defect")
-        for ci in range(1, 5):
-            we.column_dimensions[get_column_letter(ci)].width = 44
-        rr = 6
-        caps = [("Test case receipt", "receipt_output"), ("Proof photo 1", "proof1"), ("Proof photo 2", "proof2"), ("Proof photo 3", "proof3")]
-        for x in ev:
-            we.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=4)
-            hc = we.cell(row=rr, column=1, value=f"{clean_str(x.get('defect_ref'))}  ·  {clean_str(x.get('module_name'))}  ·  Status: {clean_str(x.get('defect_status')) or 'Open'}")
-            hc.font = Font(name=FONT, size=11, bold=True, color="FFFFFF")
-            hc.fill = fill(C_HEAD)
-            hc.alignment = left
-            we.row_dimensions[rr].height = 24
-            rr += 1
-            for ci, (cap, key) in enumerate(caps, start=1):
-                cc = we.cell(row=rr, column=ci, value=cap if receipt_to_jpeg(x.get(key)) else "—")
-                cc.font = Font(name=FONT, size=9, bold=True, color="7F7F7F")
-                cc.fill = fill(C_LIGHT)
-                cc.alignment = center
-                cc.border = border
-            rr += 1
-            row_h = 30
-            for ci, (cap, key) in enumerate(caps, start=1):
-                we.cell(row=rr, column=ci).border = border
-                res = receipt_to_jpeg(x.get(key))
-                if res:
-                    data, iw, ih = res
-                    sc = min(290 / iw, 230 / ih, 1)
-                    img = OpenPyXLImage(io.BytesIO(data))
-                    img.width, img.height = int(iw * sc), int(ih * sc)
-                    we.add_image(img, f"{get_column_letter(ci)}{rr}")
-                    row_h = max(row_h, img.height * 0.75 + 8)
-            we.row_dimensions[rr].height = row_h
-            rr += 2
-        we.sheet_properties.tabColor = "2E75B6"
-        page_setup(we)
 
     wb.active = 0
     out = io.BytesIO()
@@ -1446,16 +1019,6 @@ def generate_preprod_defect_pdf(df, scope_label="All defects"):
             data, iw, ih = res
             sc = min(300 / iw, 220 / ih, 1)
             block += [Paragraph("RECEIPT / EVIDENCE", st_sec), RLImg(io.BytesIO(data), width=iw * sc, height=ih * sc)]
-        proofs = [p for p in (receipt_to_jpeg(r.get(k)) for k in ("proof1", "proof2", "proof3")) if p]
-        if proofs:
-            block.append(Paragraph("PROOF PHOTOS", st_sec))
-            imgs = []
-            for data, iw, ih in proofs:
-                sc = min(160 / iw, 140 / ih, 1)
-                imgs.append(RLImg(io.BytesIO(data), width=iw * sc, height=ih * sc))
-            ptab = Table([imgs], colWidths=[W / 3] * len(imgs))
-            ptab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
-            block.append(ptab)
         block.append(Spacer(1, 16))
         story.append(KeepTogether(block[:2]))
         story += block[2:]
@@ -1521,8 +1084,6 @@ def render_preprod_defect_tracker(can_execute):
                 c3, c4 = st.columns(2)
                 m_by = c3.text_input("Detected By (Tester)", value=st.session_state.get("logged_user", "Tester"))
                 m_utano = c4.text_input("UTANO / Bill Number (Optional)")
-                m_photos = st.file_uploader("📸 Upload receipt / photo proof (max 3) – optional", type=["png", "jpg", "jpeg"],
-                                            accept_multiple_files=True, key="pp_man_photos")
                 if st.form_submit_button("🚨 Save Defect to Database", use_container_width=True, type="primary"):
                     if not m_ref.strip() or not m_desc.strip():
                         st.error("Please provide at least a Defect ID and a Description.")
@@ -1534,15 +1095,14 @@ def render_preprod_defect_tracker(can_execute):
                                 cur.execute("""
                                     INSERT INTO preprod_defects (defect_ref, suite, case_key, source, module_name, severity, priority,
                                         assigned_to, defect_status, defect_desc, steps_to_reproduce, expected_result, detected_by,
-                                        utano, rrn, execution_date, proof1, proof2, proof3)
-                                    VALUES (%s,'MANUAL',%s,'MANUAL',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                        utano, rrn, execution_date)
+                                    VALUES (%s,'MANUAL',%s,'MANUAL',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                     ON CONFLICT (suite, case_key) DO NOTHING
                                 """, (m_ref.strip(), m_ref.strip(), m_module.strip() or "General", m_sev, m_pri, m_assign, m_status,
                                       m_desc.strip(), m_steps.strip(), m_exp.strip(), m_by.strip(), m_utano.strip(),
-                                      pp_derive_rrn(m_utano), pp_stamp(), *pp_assign_photo_slots(m_photos, [False] * 3, [False] * 3)[0]))
+                                      pp_derive_rrn(m_utano), pp_stamp()))
                                 created = cur.rowcount
                                 conn.commit()
-                                st.cache_data.clear()
                                 cur.close()
                                 conn.close()
                                 if created:
@@ -1579,28 +1139,17 @@ def render_preprod_defect_tracker(can_execute):
         return
     st.warning(f"⚠️ Active defects matching your criteria: {len(view)}")
 
-    # ---------- downloads (built on demand so the page stays fast) ----------
+    # ---------- downloads ----------
     st.markdown("### 📥 Download Defect Tracking Register")
     scope = "All active defects" if len(view) == len(defects_df) else f"Filtered ({len(view)} of {len(defects_df)} defects)"
-    _sig = pp_fingerprint(view, scope)
-    _rep = st.session_state.get("pp_def_reports")
-    if not _rep or _rep.get("sig") != _sig:
-        st.caption("The reports include receipts and proof photos, so they are built when you press the button (keeps the app fast).")
-        if st.button("⚙️ Prepare Excel + PDF Reports", type="primary", use_container_width=True, key="pp_def_prepare"):
-            with st.spinner("Building defect reports with photos…"):
-                view_dl = attach_defect_receipts(view)
-                st.session_state["pp_def_reports"] = {"sig": _sig, "xlsx": generate_preprod_defect_excel(view_dl, scope),
-                                                       "pdf": generate_preprod_defect_pdf(view_dl, scope), "at": pp_now().strftime("%H:%M:%S")}
-            st.rerun()
-    else:
-        st.success(f"✅ Reports ready (prepared {_rep['at']}). Download below.")
-        d1, d2 = st.columns(2)
-        d1.download_button("📥 Download Defect Register (.xlsx)", data=_rep["xlsx"],
-                           file_name=f"PeoplesBank_PreProd_Defect_Register_{pp_now().strftime('%Y%m%d_%H%M')}.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-        d2.download_button("📄 Download Defect Report (.pdf)", data=_rep["pdf"],
-                           file_name=f"PeoplesBank_PreProd_Defect_Report_{pp_now().strftime('%Y%m%d_%H%M')}.pdf",
-                           mime="application/pdf", use_container_width=True)
+    view_dl = attach_defect_receipts(view)
+    d1, d2 = st.columns(2)
+    d1.download_button("📥 Download Defect Register (.xlsx)", data=generate_preprod_defect_excel(view_dl, scope),
+                       file_name=f"PeoplesBank_PreProd_Defect_Register_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    d2.download_button("📄 Download Defect Report (.pdf)", data=generate_preprod_defect_pdf(view_dl, scope),
+                       file_name=f"PeoplesBank_PreProd_Defect_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                       mime="application/pdf", use_container_width=True)
     st.divider()
 
     # ---------- overview table ----------
@@ -1631,9 +1180,6 @@ def render_preprod_defect_tracker(can_execute):
                 info += f"  |  **Card:** {clean_str(row.get('card_scheme'))} {clean_str(row.get('card_type'))}  |  **Bank:** {clean_str(row.get('issuing_bank'))}  |  **Account:** {clean_str(row.get('account_type'))}"
             info += f"  |  **RRN:** {clean_str(row.get('rrn')) or '—'}  |  **UTANO:** {clean_str(row.get('utano')) or '—'}"
             st.markdown(info)
-            _n_proof = sum(1 for k in ("has_proof1", "has_proof2", "has_proof3") if bool(row.get(k)))
-            if _n_proof and st.checkbox(f"🖼️ Show saved proof photos ({_n_proof})", key=f"pp_def_showproof_{did}"):
-                pp_show_defect_proofs(did)
             if not can_execute:
                 for lab, key in (("Defect Description", "defect_desc"), ("Steps to Reproduce", "steps_to_reproduce"), ("Expected Result", "expected_result")):
                     st.markdown(f"**{lab}:**")
@@ -1656,9 +1202,6 @@ def render_preprod_defect_tracker(can_execute):
                 steps = st.text_area("Steps to Reproduce", value=clean_str(row.get("steps_to_reproduce")), height=90)
                 exp = st.text_area("Expected Result", value=clean_str(row.get("expected_result")), height=90)
                 by = st.text_input("Detected By (Tester)", value=clean_str(row.get("detected_by")))
-                st.markdown("**📸 Receipt / photo proof (max 3 in total)**")
-                new_photos = st.file_uploader("Add receipt or photo proof", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key=f"pp_def_photos_{did}")
-                rm_flags = [bool(st.checkbox(f"🗑️ Remove saved photo {n}", key=f"pp_def_rmp{n}_{did}")) if bool(row.get(f"has_proof{n}")) else False for n in (1, 2, 3)]
                 if st.form_submit_button("💾 Save Defect Details", use_container_width=True, type="primary"):
                     if status == "PASS":
                         ok, msg = resolve_preprod_defect(dict(row))
@@ -1668,7 +1211,6 @@ def render_preprod_defect_tracker(can_execute):
                         else:
                             st.error(msg)
                     else:
-                        new_vals, eff_rm, photo_notice = pp_assign_photo_slots(new_photos, [bool(row.get(f"has_proof{n}")) for n in (1, 2, 3)], rm_flags)
                         conn = get_db_connection()
                         if conn:
                             try:
@@ -1676,20 +1218,15 @@ def render_preprod_defect_tracker(can_execute):
                                 cur.execute("""
                                     UPDATE preprod_defects SET module_name=%s, severity=%s, priority=%s, assigned_to=%s, defect_status=%s,
                                         defect_desc=%s, steps_to_reproduce=%s, expected_result=%s, detected_by=%s, utano=%s, rrn=%s,
-                                        proof1 = CASE WHEN %s THEN NULL ELSE COALESCE(%s, proof1) END,
-                                        proof2 = CASE WHEN %s THEN NULL ELSE COALESCE(%s, proof2) END,
-                                        proof3 = CASE WHEN %s THEN NULL ELSE COALESCE(%s, proof3) END,
                                         updated_at=CURRENT_TIMESTAMP
                                     WHERE id=%s
                                 """, (module.strip(), None if sev == PP_NOT_SET else sev, None if pri == PP_NOT_SET else pri,
                                       None if assigned == PP_NOT_SET else assigned, status, desc.strip(), steps.strip(), exp.strip(),
-                                      by.strip(), utano.strip(), pp_derive_rrn(utano, row.get("rrn")),
-                                      eff_rm[0], new_vals[0], eff_rm[1], new_vals[1], eff_rm[2], new_vals[2], did))
+                                      by.strip(), utano.strip(), pp_derive_rrn(utano, row.get("rrn")), did))
                                 conn.commit()
-                                st.cache_data.clear()
                                 cur.close()
                                 conn.close()
-                                st.session_state["pp_flash"] = f"Defect {ref} updated." + (f" {photo_notice}" if photo_notice else "")
+                                st.session_state["pp_flash"] = f"Defect {ref} updated."
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Could not update defect: {e}")
@@ -1700,7 +1237,6 @@ def render_preprod_defect_tracker(can_execute):
                         cur = conn.cursor()
                         cur.execute("DELETE FROM preprod_defects WHERE id = %s", (did,))
                         conn.commit()
-                        st.cache_data.clear()
                         cur.close()
                         conn.close()
                         st.session_state["pp_flash"] = f"Defect {ref} deleted (the test case status was not changed)."
@@ -1719,10 +1255,14 @@ def render_preprod_screen_issues(can_execute):
     if "pp_flash" in st.session_state:
         st.success(st.session_state.pop("pp_flash"))
 
-    try:
-        screen_df = pp_fetch_screen_issues()
-    except Exception:
-        screen_df = pd.DataFrame()
+    conn = get_db_connection()
+    screen_df = pd.DataFrame()
+    if conn:
+        try:
+            screen_df = pd.read_sql("SELECT * FROM preprod_screen_issues", conn)
+            conn.close()
+        except Exception:
+            pass
     nums = [int(m) for m in screen_df["issue_id"].astype(str).str.extract(r"PP_UI_(\d+)")[0].dropna()] if not screen_df.empty else []
     next_num = (max(nums) + 1) if nums else 1
     next_id = f"PP_UI_{next_num:02d}"
@@ -1770,7 +1310,6 @@ def render_preprod_screen_issues(can_execute):
                                       sev, desc.strip(), notes.strip(), st.session_state.get("logged_user", "Tester"),
                                       pp_now().strftime("%Y-%m-%d %H:%M:%S"), imgs[0], imgs[1], imgs[2]))
                                 conn.commit()
-                                st.cache_data.clear()
                                 cur.close()
                                 conn.close()
                                 st.session_state["pp_flash"] = f"Screen issue {next_id} saved with icon {icon.strip()}."
@@ -1803,25 +1342,13 @@ def render_preprod_screen_issues(can_execute):
     st.warning(f"⚠️ Screen / UI issues matching your criteria: {len(view)} (total logged: {len(screen_df)})")
 
     st.markdown("### 📥 Download Official Screen Issues Reports")
-    _sig = pp_fingerprint(view, "screen")
-    _rep = st.session_state.get("pp_scr_reports")
-    if not _rep or _rep.get("sig") != _sig:
-        st.caption("The reports include the screenshots, so they are built when you press the button (keeps the app fast).")
-        if st.button("⚙️ Prepare Excel + PDF Reports", type="primary", use_container_width=True, key="pp_scr_prepare"):
-            with st.spinner("Building screen issue reports with screenshots…"):
-                view_dl = pp_attach_screen_images(view)
-                st.session_state["pp_scr_reports"] = {"sig": _sig, "xlsx": generate_screen_issues_excel(view_dl).getvalue(),
-                                                       "pdf": generate_screen_issues_pdf(view_dl).getvalue(), "at": pp_now().strftime("%H:%M:%S")}
-            st.rerun()
-    else:
-        st.success(f"✅ Reports ready (prepared {_rep['at']}). Download below.")
-        dl1, dl2 = st.columns(2)
-        dl1.download_button("📥 Download Screen Issues (.xlsx)", data=_rep["xlsx"],
-                            file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{pp_now().strftime('%Y%m%d_%H%M')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-        dl2.download_button("📥 Download Screen Issues (.pdf)", data=_rep["pdf"],
-                            file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{pp_now().strftime('%Y%m%d_%H%M')}.pdf",
-                            mime="application/pdf", use_container_width=True)
+    dl1, dl2 = st.columns(2)
+    dl1.download_button("📥 Download Screen Issues (.xlsx)", data=generate_screen_issues_excel(view).getvalue(),
+                        file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    dl2.download_button("📥 Download Screen Issues (.pdf)", data=generate_screen_issues_pdf(view).getvalue(),
+                        file_name=f"PeoplesBank_PreProd_UI_Screen_Issues_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        mime="application/pdf", use_container_width=True)
     st.divider()
 
     for idx, row in view.iterrows():
@@ -1848,16 +1375,15 @@ def render_preprod_screen_issues(can_execute):
             if s_notes:
                 st.markdown("**💡 Developer Explanation & Fix Instructions:**")
                 st.success(s_notes)
-            _n_img = sum(1 for k in ("has_img1", "has_img2", "has_img3") if bool(row.get(k)))
-            if _n_img and st.checkbox(f"🖼️ Show screenshots ({_n_img})", key=f"pp_scr_showimg_{s_id}_{idx}"):
-                img_cols = st.columns(3)
-                for i, data_str in enumerate(pp_get_screen_images(s_id, s_mod)):
-                    if data_str:
-                        with img_cols[i]:
-                            try:
-                                st.image(base64.b64decode(data_str), caption=f"Proof {i + 1} ({s_icon})", use_container_width=True)
-                            except Exception:
-                                pass
+            img_cols = st.columns(3)
+            for i, fld in enumerate(("image1", "image2", "image3")):
+                data_str = clean_str(row.get(fld))
+                if data_str:
+                    with img_cols[i]:
+                        try:
+                            st.image(base64.b64decode(data_str), caption=f"Proof {i + 1} ({s_icon})", use_container_width=True)
+                        except Exception:
+                            pass
             if can_execute:
                 st.markdown("---")
                 with st.form(key=f"pp_scr_upd_{s_id}_{idx}"):
@@ -1885,7 +1411,6 @@ def render_preprod_screen_issues(can_execute):
                                                    issue_type=%s, severity=%s, description=%s, developer_notes=%s WHERE issue_id=%s AND module_name=%s""",
                                                 (u_icon.strip(), u_mod.strip(), u_screen.strip(), u_lang, u_type, u_sev, u_desc, u_notes, s_id, s_mod))
                                     conn.commit()
-                                    st.cache_data.clear()
                                     cur.close()
                                     conn.close()
                                     st.session_state["pp_flash"] = f"Screen issue {s_id} updated."
@@ -1899,229 +1424,12 @@ def render_preprod_screen_issues(can_execute):
                             cur = conn.cursor()
                             cur.execute("DELETE FROM preprod_screen_issues WHERE issue_id=%s AND module_name=%s", (s_id, s_mod))
                             conn.commit()
-                            st.cache_data.clear()
                             cur.close()
                             conn.close()
                             st.session_state["pp_flash"] = f"Screen issue {s_id} deleted."
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error deleting screen issue: {e}")
-
-
-# =========================================================
-# PRE-PRODUCTION: Manage test cases (Admin / Manager only)
-# =========================================================
-def pp_suggest_tc_id(ids):
-    """Next free ID in the same pattern, e.g. CB_DEP_002 -> CB_DEP_003, WD-009 -> WD-010."""
-    cands = []
-    for raw in ids:
-        t = clean_str(raw)
-        if _re_sort.match(r"^(.*?)(\d+)$", t):
-            cands.append(t)
-    if not cands:
-        return ""
-    last = max(cands, key=_natural_key)
-    m = _re_sort.match(r"^(.*?)(\d+)$", last)
-    return f"{m.group(1)}{str(int(m.group(2)) + 1).zfill(len(m.group(2)))}"
-
-
-def _pp_pick(label, options, key, default=None):
-    """Drop-down of existing values plus a box to type a new one (new value wins)."""
-    opts = [o for o in options if o]
-    c1, c2 = st.columns([1, 1])
-    chosen = c1.selectbox(label, opts or ["—"], index=(opts.index(default) if default in opts else 0), key=f"{key}_sel")
-    typed = c2.text_input(f"{label} – or type a new one", key=f"{key}_new")
-    return (typed.strip() or ("" if chosen == "—" else chosen)).strip()
-
-
-def render_preprod_manage_cases(mat_df, exec_df, is_admin):
-    st.markdown("### ⚙️ Manage Test Cases")
-    if not is_admin:
-        st.info("🔒 Only **Admin / Manager** users can add, edit or delete test cases.")
-        return
-    st.caption("Add new test cases (for example *Fund Transfer – Savings Account to Third Party*), correct the master details of existing ones, "
-               "or delete cases that are not needed. Saved test results are not changed by editing.")
-    if "pp_flash" in st.session_state:
-        st.success(st.session_state.pop("pp_flash"))
-
-    suite_label = st.radio("Test suite", ["Withdrawal Card Matrix", "All Transactions Execution Report"], horizontal=True, key="pp_mng_suite")
-    is_mat = suite_label.startswith("Withdrawal")
-    table = "preprod_withdrawal_matrix" if is_mat else "preprod_all_transactions"
-    suite = "MATRIX" if is_mat else "EXEC"
-    df = mat_df if is_mat else exec_df
-    if not df.empty and "row_id" not in df.columns:
-        st.error("The `row_id` column is missing from this table. Reload the page once (the app adds it automatically), "
-                 "or run the SQL in preprod_update_v2.sql.")
-        return
-    existing_ids = {clean_str(x).lower() for x in df["tc_id"]} if not df.empty else set()
-    action = st.radio("What do you want to do?", ["➕ Add new test case", "✏️ Edit test case", "🗑️ Delete test case"], horizontal=True, key="pp_mng_action")
-
-    # ------------------------------------------------------------- ADD
-    if action.startswith("➕"):
-        if is_mat:
-            sug = pp_suggest_tc_id(list(df["tc_id"])) if not df.empty else ""
-            st.markdown("#### ➕ Add Withdrawal Test Case")
-            with st.form("pp_add_case_matrix"):
-                tc_id = st.text_input("TC ID", value=sug, key=f"pp_add_m_id_{sug}")
-                scheme = _pp_pick("Card Scheme", sorted({clean_str(x) for x in df["card_scheme"]}) if not df.empty else ["Visa", "Mastercard", "JCB"], "pp_add_m_scheme")
-                ctype = _pp_pick("Card Type", sorted({clean_str(x) for x in df["card_type"]}) if not df.empty else ["Debit", "Credit"], "pp_add_m_ctype")
-                bank = _pp_pick("Issuing Bank", sorted({clean_str(x) for x in df["issuing_bank"]}) if not df.empty else [], "pp_add_m_bank")
-                acct = _pp_pick("Account Type", sorted({clean_str(x) for x in df["account_type"]}) if not df.empty else ["CHK", "SAV"], "pp_add_m_acct")
-                if st.form_submit_button("➕ Add Test Case", type="primary", use_container_width=True):
-                    tc_id = tc_id.strip()
-                    if not tc_id or not scheme or not ctype:
-                        st.error("TC ID, Card Scheme and Card Type are required.")
-                    elif tc_id.lower() in existing_ids:
-                        st.error(f"TC ID {tc_id} already exists. Use a new ID.")
-                    else:
-                        conn = get_db_connection()
-                        if conn:
-                            try:
-                                cur = conn.cursor()
-                                cur.execute("""INSERT INTO preprod_withdrawal_matrix
-                                    (tc_id, card_scheme, card_type, issuing_bank, account_type, fe_status, sibs_status, overall_status)
-                                    VALUES (%s,%s,%s,%s,%s,'NOT EXECUTED','NOT EXECUTED','NOT EXECUTED')""",
-                                            (tc_id, scheme, ctype, pp_null(bank), pp_null(acct)))
-                                conn.commit()
-                                cur.close()
-                                conn.close()
-                                st.cache_data.clear()
-                                st.session_state["pp_flash"] = f"Test case {tc_id} added to the Withdrawal Card Matrix."
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Could not add test case: {e}")
-        else:
-            st.markdown("#### ➕ Add Transaction Test Case")
-            cats = sorted({clean_str(x) for x in df["transaction_category"]} - {""}) if not df.empty else []
-            NEW_CAT = "➕ New category…"
-            cat_sel = st.selectbox("Transaction category", cats + [NEW_CAT], key="pp_add_e_cat")
-            new_cat = st.text_input("New category name", placeholder="e.g. Fund Transfer", key="pp_add_e_newcat") if cat_sel == NEW_CAT else ""
-            category = new_cat.strip() if cat_sel == NEW_CAT else cat_sel
-            ids_in_cat = list(df[df["transaction_category"].map(clean_str) == category]["tc_id"]) if (not df.empty and cat_sel != NEW_CAT) else []
-            sug = pp_suggest_tc_id(ids_in_cat)
-            with st.form(f"pp_add_case_exec_{cat_sel}"):
-                tc_id = st.text_input("TC ID", value=sug, placeholder="e.g. CB_FT_001", key=f"pp_add_e_id_{cat_sel}_{sug}")
-                desc = st.text_area("Transaction / Test Description", placeholder="e.g. Fund Transfer – Savings Account to Third Party Account", key=f"pp_add_e_desc_{cat_sel}")
-                ctype = _pp_pick("Card Type", sorted({clean_str(x) for x in df["card_type"]} - {""}) if not df.empty else ["Visa", "Mastercard"], "pp_add_e_ctype")
-                if st.form_submit_button("➕ Add Test Case", type="primary", use_container_width=True):
-                    tc_id = tc_id.strip()
-                    if not tc_id or not category or not desc.strip():
-                        st.error("TC ID, Category and Description are required.")
-                    elif tc_id.lower() in existing_ids:
-                        st.error(f"TC ID {tc_id} already exists. Use a new ID.")
-                    else:
-                        conn = get_db_connection()
-                        if conn:
-                            try:
-                                cur = conn.cursor()
-                                cur.execute("""INSERT INTO preprod_all_transactions
-                                    (tc_id, transaction_category, transaction_description, card_type, fe_status, switch_status, sibs_status, overall_status)
-                                    VALUES (%s,%s,%s,%s,'NOT EXECUTED','NOT EXECUTED','NOT EXECUTED','NOT EXECUTED')""",
-                                            (tc_id, category, desc.strip(), pp_null(ctype)))
-                                conn.commit()
-                                cur.close()
-                                conn.close()
-                                st.cache_data.clear()
-                                st.session_state["pp_flash"] = f"Test case {tc_id} added under '{category}'."
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Could not add test case: {e}")
-        return
-
-    if df.empty:
-        st.info("There are no test cases in this suite yet.")
-        return
-
-    def _label(r):
-        if is_mat:
-            return f"{clean_str(r['tc_id'])} — {clean_str(r.get('card_scheme'))} {clean_str(r.get('card_type'))} | {clean_str(r.get('issuing_bank'))} | {clean_str(r.get('account_type'))}"
-        return f"{clean_str(r['tc_id'])} — {clean_str(r.get('transaction_category'))} | {clean_str(r.get('transaction_description'))[:60]}"
-    labels = {int(r["row_id"]): _label(r) for _, r in df.iterrows()}
-    rid = st.selectbox("Select test case", list(labels.keys()), format_func=lambda k: labels[k], key=f"pp_mng_pick_{action[:2]}_{suite}")
-    row = df[df["row_id"].astype(int) == int(rid)].iloc[0]
-    old_key = pp_case_key(suite, clean_str(row["tc_id"]), clean_str(row.get("card_type")), clean_str(row.get("issuing_bank")), clean_str(row.get("account_type")))
-
-    # ------------------------------------------------------------- EDIT
-    if action.startswith("✏️"):
-        st.markdown("#### ✏️ Edit Test Case Details")
-        with st.form(f"pp_edit_case_{suite}_{rid}"):
-            tc_id = st.text_input("TC ID", value=clean_str(row["tc_id"]))
-            if is_mat:
-                c1, c2 = st.columns(2)
-                scheme = c1.text_input("Card Scheme", value=clean_str(row.get("card_scheme")))
-                ctype = c2.text_input("Card Type", value=clean_str(row.get("card_type")))
-                c3, c4 = st.columns(2)
-                bank = c3.text_input("Issuing Bank", value=clean_str(row.get("issuing_bank")))
-                acct = c4.text_input("Account Type", value=clean_str(row.get("account_type")))
-            else:
-                category = st.text_input("Transaction Category", value=clean_str(row.get("transaction_category")))
-                desc = st.text_area("Transaction / Test Description", value=clean_str(row.get("transaction_description")))
-                ctype = st.text_input("Card Type", value=clean_str(row.get("card_type")))
-            if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-                new_id = tc_id.strip()
-                if not new_id:
-                    st.error("TC ID cannot be empty.")
-                elif new_id.lower() != clean_str(row["tc_id"]).lower() and new_id.lower() in existing_ids:
-                    st.error(f"TC ID {new_id} is already used by another test case.")
-                else:
-                    conn = get_db_connection()
-                    if conn:
-                        try:
-                            cur = conn.cursor()
-                            if is_mat:
-                                cur.execute("""UPDATE preprod_withdrawal_matrix SET tc_id=%s, card_scheme=%s, card_type=%s, issuing_bank=%s, account_type=%s
-                                               WHERE row_id=%s""", (new_id, pp_null(scheme), pp_null(ctype), pp_null(bank), pp_null(acct), int(rid)))
-                                new_ctx = pp_ctx("MATRIX", {"tc_id": new_id, "card_scheme": scheme, "card_type": ctype, "issuing_bank": bank, "account_type": acct})
-                                new_key = pp_case_key("MATRIX", new_id, ctype.strip(), bank.strip(), acct.strip())
-                            else:
-                                cur.execute("""UPDATE preprod_all_transactions SET tc_id=%s, transaction_category=%s, transaction_description=%s, card_type=%s
-                                               WHERE row_id=%s""", (new_id, pp_null(category), pp_null(desc), pp_null(ctype), int(rid)))
-                                new_ctx = pp_ctx("EXEC", {"tc_id": new_id, "transaction_category": category, "transaction_description": desc, "card_type": ctype})
-                                new_key = pp_case_key("EXEC", new_id)
-                            # keep an open defect attached to the renamed test case
-                            cur.execute("""UPDATE preprod_defects SET defect_ref=%s, case_key=%s, module_name=%s,
-                                           card_scheme=%s, card_type=%s, issuing_bank=%s, account_type=%s, updated_at=CURRENT_TIMESTAMP
-                                           WHERE suite=%s AND case_key=%s""",
-                                        (new_id, new_key, new_ctx["module_name"], new_ctx["card_scheme"], new_ctx["card_type"],
-                                         new_ctx["issuing_bank"], new_ctx["account_type"], suite, old_key))
-                            conn.commit()
-                            cur.close()
-                            conn.close()
-                            st.cache_data.clear()
-                            st.session_state["pp_flash"] = f"Test case {new_id} updated."
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Could not update test case: {e}")
-        return
-
-    # ------------------------------------------------------------- DELETE
-    st.markdown("#### 🗑️ Delete Test Case")
-    status_now = clean_str(row.get("overall_status")) or "NOT EXECUTED"
-    if is_mat:
-        render_master_card("Test case to delete", [("TC ID", row.get("tc_id")), ("Card Scheme", row.get("card_scheme")), ("Card Type", row.get("card_type")),
-                                                    ("Issuing Bank", row.get("issuing_bank")), ("Account Type", row.get("account_type"))], status=status_now)
-    else:
-        render_master_card("Test case to delete", [("TC ID", row.get("tc_id")), ("Category", row.get("transaction_category")), ("Card Type", row.get("card_type"))],
-                           description=row.get("transaction_description"), status=status_now)
-    if status_now.upper() != "NOT EXECUTED" or bool(row.get("has_receipt")):
-        st.warning("⚠️ This test case already has a saved result" + (" and a receipt" if bool(row.get("has_receipt")) else "") + ". Deleting it removes them permanently.")
-    confirm = st.checkbox("I understand – permanently delete this test case (and any open defect linked to it)", key=f"pp_mng_confirm_{suite}_{rid}")
-    if st.button("🗑️ Delete Test Case", type="primary", disabled=not confirm, use_container_width=True, key=f"pp_mng_del_{suite}_{rid}"):
-        conn = get_db_connection()
-        if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute(f"DELETE FROM {table} WHERE row_id = %s", (int(rid),))
-                cur.execute("DELETE FROM preprod_defects WHERE suite=%s AND case_key=%s", (suite, old_key))
-                conn.commit()
-                cur.close()
-                conn.close()
-                st.cache_data.clear()
-                st.session_state["pp_flash"] = f"Test case {clean_str(row['tc_id'])} deleted."
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not delete test case: {e}")
-
 
 
 def render_stored_receipt(receipt_data):
@@ -4207,17 +3515,21 @@ elif menu == "🚀 Pre-Production Testing":
         st.warning("⚠️ Your current role has **Viewer** privileges. Execution updates are restricted.")
 
     # Fetch data directly from Supabase using your app's standard connection function
-    if not st.session_state.get("pp_tables_ready"):
-        st.session_state["pp_schema_ok"] = ensure_preprod_defect_tables()     # adds missing tables / columns once per session
-        st.session_state["pp_tables_ready"] = True
-
     mat_df, exec_df = pd.DataFrame(), pd.DataFrame()
-    try:
-        # receipt images are NOT downloaded here (only a has_receipt flag) - that keeps every screen quick
-        mat_df = natural_sort_df(pp_fetch_table("preprod_withdrawal_matrix"))
-        exec_df = natural_sort_df(pp_fetch_table("preprod_all_transactions"))
-    except Exception as e:
-        st.error(f"Database fetch error (Make sure migration script was run): {e}")
+    conn_db = get_db_connection()
+    if conn_db:
+        try:
+            mat_df = pd.read_sql("SELECT * FROM preprod_withdrawal_matrix", con=conn_db)
+            exec_df = pd.read_sql("SELECT * FROM preprod_all_transactions", con=conn_db)
+            conn_db.close()
+            # Postgres returns updated rows last -> always present in Test-Case-ID order
+            mat_df = natural_sort_df(mat_df)
+            exec_df = natural_sort_df(exec_df)
+        except Exception as e:
+            st.error(f"Database fetch error (Make sure migration script was run): {e}")
+
+    if not st.session_state.get("pp_tables_ready"):
+        st.session_state["pp_tables_ready"] = ensure_preprod_defect_tables()
 
     if not mat_df.empty or not exec_df.empty:
         preprod_tabs = st.tabs([
@@ -4227,8 +3539,7 @@ elif menu == "🚀 Pre-Production Testing":
             "✏️ Quick Edit Matrix", 
             "🧪 Interactive Test Runner",
             "🛠️ Defect Tracker",
-            "🎨 Screen Issues",
-            "⚙️ Manage Test Cases"
+            "🎨 Screen Issues"
         ])
 
         # --- TAB 1: SUMMARY DASHBOARD ---
@@ -4789,41 +4100,28 @@ elif menu == "🚀 Pre-Production Testing":
             #         tc_id = file.name.split(".")[0]  # Or match your naming convention
             #         receipt_images[tc_id] = file
 
-            # 2. Choose scope (all / filtered + sorted). Reports (with receipt images) are built on demand so the page stays fast.
+            # 2. Choose scope (all / filtered + sorted), then side-by-side download buttons
             dl_mat, dl_exec, dl_keep_order, dl_scope = preprod_download_selector(mat_df, exec_df)
             _dl_tag = "" if dl_scope == "All" else "_Filtered"
-            _sig = pp_fingerprint(dl_mat, dl_exec, dl_keep_order, dl_scope)
-            _rep = st.session_state.get("pp_reports")
-            if not _rep or _rep.get("sig") != _sig:
-                st.caption("The reports include the receipt images, so they are built when you press the button (this keeps the app fast).")
-                if st.button("⚙️ Prepare Excel + PDF Reports", type="primary", use_container_width=True, key="pp_prepare_reports"):
-                    with st.spinner("Building reports with receipt images…"):
-                        _m = pp_attach_receipts(dl_mat, "preprod_withdrawal_matrix")
-                        _e = pp_attach_receipts(dl_exec, "preprod_all_transactions")
-                        st.session_state["pp_reports"] = {
-                            "sig": _sig, "tag": _dl_tag, "at": pp_now().strftime("%H:%M:%S"),
-                            "xlsx": generate_styled_uat_excel(_m, _e, receipt_images, keep_order=dl_keep_order),
-                            "pdf": generate_uat_pdf_report(_e)}
-                    st.rerun()
-            else:
-                st.success(f"✅ Reports ready (prepared {_rep['at']}). Download below.")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label="📥 Download Professional UAT Report (.xlsx)",
-                        data=_rep["xlsx"],
-                        file_name=f"PeoplesBank_CRM_PreProd_UAT_Report{_rep['tag']}_{pp_now().strftime('%Y%m%d_%H%M')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                with col2:
-                    st.download_button(
-                        label="📄 Download PDF Summary Report (.pdf)",
-                        data=_rep["pdf"],
-                        file_name=f"PeoplesBank_CRM_PreProd_UAT_Summary{_rep['tag']}_{pp_now().strftime('%Y%m%d_%H%M')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.download_button(
+                    label="📥 Download Professional UAT Report (.xlsx)",
+                    data=generate_styled_uat_excel(dl_mat, dl_exec, receipt_images, keep_order=dl_keep_order),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Report{_dl_tag}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            with col2:
+                st.download_button(
+                    label="📄 Download PDF Summary Report (.pdf)",
+                    data=generate_uat_pdf_report(dl_exec),
+                    file_name=f"PeoplesBank_CRM_PreProd_UAT_Summary{_dl_tag}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
         # --- TAB 2: WITHDRAWAL CARD MATRIX ---
         with preprod_tabs[1]:
@@ -4887,7 +4185,6 @@ elif menu == "🚀 Pre-Production Testing":
                     st.markdown("---")
                     st.markdown("#### 📝 Tester Execution Input Panel")
 
-                    pp_view_saved_receipt(table_name, row_data, f"q_{selected_tc_id}")
                     with st.form(key=f"form_db_pre_{selected_tc_id}"):
                         col_u1, col_u2 = st.columns(2)
                         row = row_data 
@@ -4896,7 +4193,7 @@ elif menu == "🚀 Pre-Production Testing":
                         # --- BRANCH 1: WITHDRAWAL MATRIX ---
                         if table_name == "preprod_withdrawal_matrix":
                             with col_u1:
-                                withdrawal_amt = st.number_input("Withdrawal Amount", value=clean_num(get_val(row, 'withdrawal_amount', 0.0)), key=f"wamt_{selected_tc_id}")
+                                withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"wamt_{selected_tc_id}")
                                 atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"atm_{selected_tc_id}")
                                 acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"acc_{selected_tc_id}")
                                 rrn_in = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"rrn_{selected_tc_id}")
@@ -4912,7 +4209,9 @@ elif menu == "🚀 Pre-Production Testing":
                                 sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"sibs_{selected_tc_id}")
                                 
                                 uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"receipt_{selected_tc_id}")
-                                remove_receipt = pp_remove_receipt_checkbox(row, f"qm_{selected_tc_id}")
+                                existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                if existing_receipt_bytes:
+                                    render_stored_receipt(existing_receipt_bytes)
                                     
                                 curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
                                 if curr_st not in status_choices: curr_st = "NOT EXECUTED"
@@ -4928,8 +4227,9 @@ elif menu == "🚀 Pre-Production Testing":
                             if st.form_submit_button(f"💾 Save Withdrawal Execution ({selected_tc_id})", type="primary"):
                                 rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                 _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
-                                receipt_bytes_to_save = pp_compress_image(uploaded_file.getvalue()) if uploaded_file is not None else None
-                                remove_receipt = bool(remove_receipt) and uploaded_file is None
+                                receipt_bytes_to_save = existing_receipt_bytes
+                                if uploaded_file is not None:
+                                    receipt_bytes_to_save = uploaded_file.getvalue()
 
                                 conn_run = get_db_connection()
                                 if conn_run:
@@ -4938,12 +4238,12 @@ elif menu == "🚀 Pre-Production Testing":
                                         cur.execute("""
                                             UPDATE preprod_withdrawal_matrix 
                                             SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
-                                                rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = CASE WHEN %s THEN NULL ELSE COALESCE(%s, receipt_output) END, 
+                                                rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
                                                 overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                             WHERE tc_id = %s
                                         """, (
                                             pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                            fe_in, sibs_val, remove_receipt, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
+                                            fe_in, sibs_val, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
                                             pp_null(tester_in), pp_null(rem_in), selected_tc_id
                                         ))
                                         sync_preprod_defect(cur, "MATRIX", pp_ctx("MATRIX", row_data), new_st, tester_in, stan_in, rrn_in, _exec_stamp, rem_in)
@@ -4951,7 +4251,7 @@ elif menu == "🚀 Pre-Production Testing":
                                         cur.close()
                                         conn_run.close()
                                         st.cache_data.clear()
-                                        st.toast(f"Successfully recorded execution for **{selected_tc_id}**!", icon="✅")
+                                        st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Execution save failed: {e}")
@@ -4960,11 +4260,11 @@ elif menu == "🚀 Pre-Production Testing":
                         else: 
                             with col_u1:
                                 acc_ref_ex = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"exec_acc_{selected_tc_id}")
-                                amount_val = st.number_input("Amount", value=clean_num(get_val(row, 'amount', 0.0)), key=f"exec_amt_{selected_tc_id}")
+                                amount_val = st.number_input("Amount", value=float(get_val(row, 'amount', 0.0) or 0.0), key=f"exec_amt_{selected_tc_id}")
                                 rrn_val = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"exec_rrn_{selected_tc_id}")
                                 stan_val = st.text_input("STAN / UTANO", value=str(get_val(row, 'stan_utano', '')), key=f"exec_stan_{selected_tc_id}")
-                                before_bal = st.number_input("Before Balance", value=clean_num(get_val(row, 'before_balance', 0.0)), key=f"exec_bb_{selected_tc_id}")
-                                after_bal = st.number_input("After Balance", value=clean_num(get_val(row, 'after_balance', 0.0)), key=f"exec_ab_{selected_tc_id}")
+                                before_bal = st.number_input("Before Balance", value=float(get_val(row, 'before_balance', 0.0) or 0.0), key=f"exec_bb_{selected_tc_id}")
+                                after_bal = st.number_input("After Balance", value=float(get_val(row, 'after_balance', 0.0) or 0.0), key=f"exec_ab_{selected_tc_id}")
                                 
                             with col_u2:
                                 curr_fe = str(get_val(row, 'fe_status', 'NOT EXECUTED')).upper().strip()
@@ -4980,7 +4280,9 @@ elif menu == "🚀 Pre-Production Testing":
                                 sibs_val = st.selectbox("SIBS / CBS Status", status_choices, index=status_choices.index(curr_sibs), key=f"exec_sibs_{selected_tc_id}")
                                 
                                 uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"exec_rec_{selected_tc_id}")
-                                remove_receipt = pp_remove_receipt_checkbox(row, f"qe_{selected_tc_id}")
+                                existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                if existing_receipt_bytes:
+                                    render_stored_receipt(existing_receipt_bytes)
 
                                 curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
                                 if curr_st not in status_choices: curr_st = "NOT EXECUTED"
@@ -4996,8 +4298,9 @@ elif menu == "🚀 Pre-Production Testing":
                             if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
                                 rrn_val = pp_derive_rrn(stan_val, rrn_val)   # RRN = STAN/UTANO without its first 6 digits
                                 _exec_stamp = pp_stamp(exec_date_val)   # exact save time, added automatically
-                                receipt_bytes_to_save = pp_compress_image(uploaded_file.getvalue()) if uploaded_file is not None else None
-                                remove_receipt = bool(remove_receipt) and uploaded_file is None
+                                receipt_bytes_to_save = existing_receipt_bytes
+                                if uploaded_file is not None:
+                                    receipt_bytes_to_save = uploaded_file.getvalue()
 
                                 conn_upd = get_db_connection()
                                 if conn_upd:
@@ -5007,11 +4310,11 @@ elif menu == "🚀 Pre-Production Testing":
                                             UPDATE preprod_all_transactions 
                                             SET account_reference_no = %s, amount = %s, rrn = %s, stan_utano = %s, 
                                                 before_balance = %s, after_balance = %s, fe_status = %s, switch_status = %s, 
-                                                sibs_status = %s, receipt_output = CASE WHEN %s THEN NULL ELSE COALESCE(%s, receipt_output) END, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
+                                                sibs_status = %s, receipt_output = %s, overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                             WHERE tc_id = %s
                                         """, (
                                             pp_null(acc_ref_ex), pp_amount(amount_val), pp_null(rrn_val), pp_null(stan_val), pp_amount(before_bal), pp_amount(after_bal), 
-                                            fe_val, switch_val, sibs_val, remove_receipt, pp_receipt(receipt_bytes_to_save), new_status, 
+                                            fe_val, switch_val, sibs_val, pp_receipt(receipt_bytes_to_save), new_status, 
                                             _exec_stamp, pp_null(tester_val), pp_null(remarks_val), selected_tc_id
                                         ))
                                         sync_preprod_defect(cur, "EXEC", pp_ctx("EXEC", row_data), new_status, tester_val, stan_val, rrn_val, _exec_stamp, remarks_val)
@@ -5019,7 +4322,7 @@ elif menu == "🚀 Pre-Production Testing":
                                         cur.close()
                                         conn_upd.close()
                                         st.cache_data.clear()
-                                        st.toast(f"Successfully recorded execution for **{selected_tc_id}**!", icon="✅")
+                                        st.success(f"Successfully recorded execution for **{selected_tc_id}**!")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Update failed: {e}")
@@ -5088,7 +4391,6 @@ elif menu == "🚀 Pre-Production Testing":
                             return default if val is None or (isinstance(val, float) and pd.isna(val)) else val
 
                         # --- TESTER INPUT / UPDATE FORM ---
-                        pp_view_saved_receipt(tbl_target, row, f"r_{idx}")
                         with st.form(key=f"interactive_form_{row.get('tc_id')}_{idx}"):
                             c_f1, c_f2 = st.columns(2)
                             
@@ -5097,7 +4399,7 @@ elif menu == "🚀 Pre-Production Testing":
                                 
                                 # --- Column 1: Inputs ---
                                 with c_f1:
-                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=clean_num(get_val(row, 'withdrawal_amount', 0.0)), key=f"run_wamt_{row.get('tc_id')}_{idx}")
+                                    withdrawal_amt = st.number_input("Withdrawal Amount", value=float(get_val(row, 'withdrawal_amount', 0.0) or 0.0), key=f"run_wamt_{row.get('tc_id')}_{idx}")
                                     atm_id = st.text_input("ATM / CRM ID", value=str(get_val(row, 'atm_crm_id', '')), key=f"run_atm_{row.get('tc_id')}_{idx}")
                                     acc_ref = st.text_input("Account / Reference No.", value=str(get_val(row, 'account_reference_no', '')), key=f"run_accref_{row.get('tc_id')}_{idx}")
                                     rrn_in = st.text_input("RRN (auto-filled from STAN / UTANO)", value=str(get_val(row, 'rrn', '')), key=f"run_rrn_{row.get('tc_id')}_{idx}")
@@ -5118,7 +4420,13 @@ elif menu == "🚀 Pre-Production Testing":
                                     # Receipt / Output Image Upload
                                     uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_rec_file_{row.get('tc_id')}_{idx}")
                                     
-                                    remove_receipt = pp_remove_receipt_checkbox(row, f"rm_{row.get('tc_id')}_{idx}")
+                                    existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                    if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
+                                        st.markdown("**Current Stored Receipt:**")
+                                        try:
+                                            st.image(existing_receipt_bytes, caption="Stored Receipt Preview", width=200)
+                                        except Exception:
+                                            pass
 
                                     # Overall Status Dropdown
                                     curr_st = str(get_val(row, 'overall_status', 'NOT EXECUTED')).upper().strip()
@@ -5145,8 +4453,9 @@ elif menu == "🚀 Pre-Production Testing":
                                 if st.form_submit_button(f"💾 Save Withdrawal Execution ({row.get('tc_id')})", type="primary"):
                                     rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                     _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
-                                    receipt_bytes_to_save = pp_compress_image(uploaded_file.getvalue()) if uploaded_file is not None else None
-                                    remove_receipt = bool(remove_receipt) and uploaded_file is None
+                                    receipt_bytes_to_save = existing_receipt_bytes
+                                    if uploaded_file is not None:
+                                        receipt_bytes_to_save = uploaded_file.getvalue()
 
                                     conn_run = get_db_connection()
                                     if conn_run:
@@ -5155,7 +4464,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur.execute("""
                                                 UPDATE preprod_withdrawal_matrix 
                                                 SET withdrawal_amount = %s, atm_crm_id = %s, account_reference_no = %s, 
-                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = CASE WHEN %s THEN NULL ELSE COALESCE(%s, receipt_output) END, 
+                                                    rrn = %s, stan_utano = %s, fe_status = %s, sibs_status = %s, receipt_output = %s, 
                                                     overall_status = %s, execution_date = %s, tester = %s, remarks = %s 
                                                 WHERE tc_id = %s 
                                                 AND account_type IS NOT DISTINCT FROM %s 
@@ -5163,7 +4472,7 @@ elif menu == "🚀 Pre-Production Testing":
                                                 AND issuing_bank IS NOT DISTINCT FROM %s
                                             """, (
                                                 pp_amount(withdrawal_amt), pp_null(atm_id), pp_null(acc_ref), pp_null(rrn_in), pp_null(stan_in), 
-                                                fe_in, sibs_in, remove_receipt, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
+                                                fe_in, sibs_in, pp_receipt(receipt_bytes_to_save), new_st, _exec_stamp, 
                                                 pp_null(tester_in), pp_null(rem_in), 
                                                 row.get('tc_id'), 
                                                 pp_null(row.get('account_type')), 
@@ -5176,7 +4485,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             conn_run.close()
                                             
                                             st.cache_data.clear()
-                                            st.toast(f"Successfully recorded execution for **{row.get('tc_id')}**!", icon="✅")
+                                            st.success(f"Successfully recorded execution for **{row.get('tc_id')}**!")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Execution save failed: {e}")
@@ -5211,7 +4520,13 @@ elif menu == "🚀 Pre-Production Testing":
                                     # Receipt / Output Image Upload
                                     uploaded_file = st.file_uploader("Upload Receipt / Output Image", type=["png", "jpg", "jpeg"], key=f"run_exec_rec_file_{idx}")
                                     
-                                    remove_receipt = pp_remove_receipt_checkbox(row, f"re_{idx}")
+                                    existing_receipt_bytes = pp_receipt(row.get('receipt_output'))
+                                    if existing_receipt_bytes and not isinstance(existing_receipt_bytes, str):
+                                        st.markdown("**Current Stored Receipt:**")
+                                        try:
+                                            st.image(existing_receipt_bytes, caption="Stored Receipt Preview", width=200)
+                                        except Exception:
+                                            pass
 
                                     # Overall Status Dropdown
                                     curr_st = (stat if 'stat' in locals() and stat else (clean_str(row.get('overall_status')) or 'NOT EXECUTED')).upper().strip()
@@ -5236,8 +4551,9 @@ elif menu == "🚀 Pre-Production Testing":
                                 if st.form_submit_button("💾 Save Transaction Execution to Supabase", type="primary"):
                                     rrn_in = pp_derive_rrn(stan_in, rrn_in)   # RRN = STAN/UTANO without its first 6 digits
                                     _exec_stamp = pp_stamp(exec_date_in)   # exact save time, added automatically
-                                    receipt_bytes_to_save = pp_compress_image(uploaded_file.getvalue()) if uploaded_file is not None else None
-                                    remove_receipt = bool(remove_receipt) and uploaded_file is None
+                                    receipt_bytes_to_save = existing_receipt_bytes
+                                    if uploaded_file is not None:
+                                        receipt_bytes_to_save = uploaded_file.getvalue()
 
                                     conn_upd = get_db_connection()
                                     if conn_upd:
@@ -5254,7 +4570,7 @@ elif menu == "🚀 Pre-Production Testing":
                                                     fe_status = %s, 
                                                     switch_status = %s, 
                                                     sibs_status = %s, 
-                                                    receipt_output = CASE WHEN %s THEN NULL ELSE COALESCE(%s, receipt_output) END, 
+                                                    receipt_output = %s, 
                                                     overall_status = %s, 
                                                     execution_date = %s, 
                                                     tester = %s, 
@@ -5270,7 +4586,7 @@ elif menu == "🚀 Pre-Production Testing":
                                                 str(fe_in), 
                                                 str(switch_in), 
                                                 str(sibs_in), 
-                                                remove_receipt, pp_receipt(receipt_bytes_to_save), 
+                                                pp_receipt(receipt_bytes_to_save), 
                                                 str(new_st), 
                                                 _exec_stamp, 
                                                 pp_null(tester_in), 
@@ -5282,7 +4598,7 @@ elif menu == "🚀 Pre-Production Testing":
                                             cur.close()
                                             conn_upd.close()
                                             st.cache_data.clear()
-                                            st.toast(f"Successfully recorded execution for **{row.get('tc_id', '')}**!", icon="✅")
+                                            st.success(f"Successfully recorded execution for **{row.get('tc_id', '')}**!")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Update failed: {e}")
@@ -5293,10 +4609,6 @@ elif menu == "🚀 Pre-Production Testing":
         # --- TAB 7: UI / SCREEN ISSUES ---
         with preprod_tabs[6]:
             render_preprod_screen_issues(can_execute)
-
-        # --- TAB 8: MANAGE TEST CASES (Admin / Manager: add, edit, delete) ---
-        with preprod_tabs[7]:
-            render_preprod_manage_cases(mat_df, exec_df, current_role == "Admin / Manager")
     else:
         st.info("No records found in Supabase pre-production tables. Please run your migration script first.")
 
