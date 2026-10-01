@@ -545,13 +545,13 @@ def pp_remove_receipt_checkbox(row, key):
     return False
 
 
-def pp_get_defect_proofs(defect_id):
+def pp_get_defect_proofs(suite, case_key):
     conn = get_db_connection()
     if not conn:
         return [None, None, None]
     try:
         cur = conn.cursor()
-        cur.execute("SELECT proof1, proof2, proof3 FROM preprod_defects WHERE id = %s", (int(defect_id),))
+        cur.execute("SELECT proof1, proof2, proof3 FROM preprod_defects WHERE suite = %s AND case_key = %s", (suite, case_key))
         res = cur.fetchone()
         cur.close()
         return [bytes(x) if x else None for x in (res or (None, None, None))]
@@ -561,9 +561,9 @@ def pp_get_defect_proofs(defect_id):
         conn.close()
 
 
-def pp_show_defect_proofs(defect_id):
+def pp_show_defect_proofs(suite, case_key):
     cols = st.columns(3)
-    for i, raw in enumerate(pp_get_defect_proofs(defect_id)):
+    for i, raw in enumerate(pp_get_defect_proofs(suite, case_key)):
         if raw:
             with cols[i]:
                 st.image(raw, caption=f"Proof photo {i + 1}", use_container_width=True)
@@ -669,7 +669,7 @@ CREATE TABLE IF NOT EXISTS public.preprod_defects (
 );
 -- tables created by an older version may lack the unique key: remove duplicates, then add it
 DELETE FROM public.preprod_defects a USING public.preprod_defects b
-    WHERE a.suite = b.suite AND a.case_key = b.case_key AND a.id > b.id;
+    WHERE a.suite = b.suite AND a.case_key = b.case_key AND a.ctid > b.ctid;
 CREATE UNIQUE INDEX IF NOT EXISTS preprod_defects_case_uk ON public.preprod_defects (suite, case_key);
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_status ON public.preprod_defects (defect_status);
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_date   ON public.preprod_defects (execution_date);
@@ -694,6 +694,19 @@ CREATE TABLE IF NOT EXISTS public.preprod_screen_issues (
     icon_number     VARCHAR(50),
     PRIMARY KEY (issue_id, module_name)
 );
+"""
+
+
+PP_DEFECT_COMPAT_SQL = """
+ALTER TABLE public.preprod_defects
+    ADD COLUMN IF NOT EXISTS defect_ref     text,
+    ADD COLUMN IF NOT EXISTS case_key       text,
+    ADD COLUMN IF NOT EXISTS source         text,
+    ADD COLUMN IF NOT EXISTS card_scheme    text,
+    ADD COLUMN IF NOT EXISTS card_type      text,
+    ADD COLUMN IF NOT EXISTS issuing_bank   text,
+    ADD COLUMN IF NOT EXISTS account_type   text,
+    ADD COLUMN IF NOT EXISTS execution_date varchar(50);
 """
 
 
@@ -889,15 +902,19 @@ def ensure_preprod_defect_tables():
             (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_withdrawal_matrix' AND column_name='row_id'),
             (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_all_transactions' AND column_name='row_id'),
             (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='preprod_defects'
-                AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%(suite, case_key)%')""")
+                AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%(suite, case_key)%'),
+            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_defects'
+                AND column_name IN ('card_scheme','card_type','issuing_bank','account_type'))""")
         have = cur.fetchone()
         conn.rollback()
         cur.close()
-        if have and all(int(x) > 0 for x in have):
+        if have and all(int(x) > 0 for x in have) and int(have[5]) >= 4:
             conn.close()
             return True
         steps = []
-        if not (have and int(have[0]) > 0 and int(have[1]) > 0 and len(have) > 4 and int(have[4]) > 0):
+        if not (have and len(have) > 5 and int(have[5]) >= 4):
+            steps.append(PP_DEFECT_COMPAT_SQL)
+        if not (have and int(have[0]) > 0 and int(have[1]) > 0 and int(have[4]) > 0):
             steps.append(PP_SCHEMA_SQL)
         if not (have and int(have[2]) > 0):
             steps.append("ALTER TABLE public.preprod_withdrawal_matrix ADD COLUMN IF NOT EXISTS row_id BIGSERIAL")
@@ -983,6 +1000,17 @@ def sync_preprod_defect(cur, suite, ctx, new_status, tester, utano, rrn, exec_da
         cur.execute("ROLLBACK TO SAVEPOINT pp_defect_sp")
 
 
+def pp_split_case_key(defect):
+    """(tc_id, card_type, issuing_bank, account_type) of the failed test case a defect belongs to.
+    Read from case_key, so it works whatever columns the preprod_defects table has."""
+    suite = clean_str(defect.get("suite"))
+    ck = clean_str(defect.get("case_key"))
+    if suite == "MATRIX":
+        parts = (ck.split("|") + ["", "", "", ""])[:4]
+        return (parts[0] or clean_str(defect.get("defect_ref"))), parts[1], parts[2], parts[3]
+    return (clean_str(defect.get("defect_ref")) or ck), "", "", ""
+
+
 def load_preprod_defects():
     """Active defects without the (heavy) proof photos; has_proof1..3 flag which photos exist."""
     try:
@@ -1002,23 +1030,23 @@ def resolve_preprod_defect(defect):
         today = pp_stamp()
         note = f"Defect {defect['defect_ref']} retested PASS on {today}"
         suite = defect["suite"]
+        tc_, ct_, bank_, acct_ = pp_split_case_key(defect)
         if suite == "MATRIX":
             cur.execute("""
                 UPDATE preprod_withdrawal_matrix
                 SET overall_status = 'PASS', execution_date = %s,
                     remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || ' | ' || %s END
-                WHERE tc_id = %s AND card_type IS NOT DISTINCT FROM %s
-                  AND issuing_bank IS NOT DISTINCT FROM %s AND account_type IS NOT DISTINCT FROM %s
-            """, (today, note, note, defect["defect_ref"], clean_str(defect.get("card_type")) or None,
-                  clean_str(defect.get("issuing_bank")) or None, clean_str(defect.get("account_type")) or None))
+                WHERE tc_id = %s AND COALESCE(card_type, '') = %s
+                  AND COALESCE(issuing_bank, '') = %s AND COALESCE(account_type, '') = %s
+            """, (today, note, note, tc_, ct_, bank_, acct_))
         elif suite == "EXEC":
             cur.execute("""
                 UPDATE preprod_all_transactions
                 SET overall_status = 'PASS', execution_date = %s,
                     remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || ' | ' || %s END
                 WHERE tc_id = %s
-            """, (today, note, note, defect["defect_ref"]))
-        cur.execute("DELETE FROM preprod_defects WHERE id = %s", (int(defect["id"]),))
+            """, (today, note, note, tc_))
+        cur.execute("DELETE FROM preprod_defects WHERE suite = %s AND case_key = %s", (suite, clean_str(defect.get("case_key"))))
         conn.commit()
         st.cache_data.clear()
         cur.close()
@@ -1047,19 +1075,20 @@ def attach_defect_receipts(df):
         return d
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, proof1, proof2, proof3 FROM preprod_defects WHERE id = ANY(%s)", ([int(x) for x in d["id"]],))
-        proofs = {int(row[0]): [bytes(x) if x else None for x in row[1:]] for row in cur.fetchall()}
+        keys_ = [clean_str(x) for x in d["case_key"]]
+        cur.execute("SELECT suite, case_key, proof1, proof2, proof3 FROM preprod_defects WHERE case_key = ANY(%s)", (keys_,))
+        proofs = {(r_[0], r_[1]): [bytes(x) if x else None for x in r_[2:]] for r_ in cur.fetchall()}
         for k_i, k in enumerate(("proof1", "proof2", "proof3")):
-            d[k] = [(proofs.get(int(i)) or [None, None, None])[k_i] for i in d["id"]]
+            d[k] = [(proofs.get((su_, clean_str(ck_))) or [None, None, None])[k_i] for su_, ck_ in zip(d["suite"], d["case_key"])]
         for i, r_ in d.iterrows():
+            tc_, ct_, bank_, acct_ = pp_split_case_key(r_)
             if r_["suite"] == "MATRIX":
                 cur.execute("""SELECT receipt_output FROM preprod_withdrawal_matrix
-                               WHERE tc_id = %s AND card_type IS NOT DISTINCT FROM %s
-                                 AND issuing_bank IS NOT DISTINCT FROM %s AND account_type IS NOT DISTINCT FROM %s LIMIT 1""",
-                            (r_["defect_ref"], clean_str(r_.get("card_type")) or None,
-                             clean_str(r_.get("issuing_bank")) or None, clean_str(r_.get("account_type")) or None))
+                               WHERE tc_id = %s AND COALESCE(card_type, '') = %s
+                                 AND COALESCE(issuing_bank, '') = %s AND COALESCE(account_type, '') = %s LIMIT 1""",
+                            (tc_, ct_, bank_, acct_))
             elif r_["suite"] == "EXEC":
-                cur.execute("SELECT receipt_output FROM preprod_all_transactions WHERE tc_id = %s LIMIT 1", (r_["defect_ref"],))
+                cur.execute("SELECT receipt_output FROM preprod_all_transactions WHERE tc_id = %s LIMIT 1", (tc_,))
             else:
                 continue
             res = cur.fetchone()
@@ -1634,7 +1663,8 @@ def render_preprod_defect_tracker(can_execute):
     st.markdown("### ⚙️ Individual Defect Details & Management")
     sev_icon = {"CRITICAL": "🟥", "HIGH": "🔴", "MEDIUM": "🟠", "LOW": "🟡"}
     for _, row in view.iterrows():
-        did = int(row["id"])
+        d_suite, d_key = clean_str(row["suite"]), clean_str(row["case_key"])
+        did = _hashlib.md5(f"{d_suite}|{d_key}".encode("utf-8")).hexdigest()[:12]      # stable widget key
         ref = clean_str(row["defect_ref"])
         icon = sev_icon.get(clean_str(row.get("severity")).upper(), "⚪")
         title_desc = clean_str(row.get("defect_desc"))[:70] or "Details not added yet"
@@ -1647,7 +1677,7 @@ def render_preprod_defect_tracker(can_execute):
             st.markdown(info)
             _n_proof = sum(1 for k in ("has_proof1", "has_proof2", "has_proof3") if bool(row.get(k)))
             if _n_proof and st.checkbox(f"🖼️ Show saved proof photos ({_n_proof})", key=f"pp_def_showproof_{did}"):
-                pp_show_defect_proofs(did)
+                pp_show_defect_proofs(d_suite, d_key)
             if not can_execute:
                 for lab, key in (("Defect Description", "defect_desc"), ("Steps to Reproduce", "steps_to_reproduce"), ("Expected Result", "expected_result")):
                     st.markdown(f"**{lab}:**")
@@ -1694,11 +1724,11 @@ def render_preprod_defect_tracker(can_execute):
                                         proof2 = CASE WHEN %s THEN NULL ELSE COALESCE(%s, proof2) END,
                                         proof3 = CASE WHEN %s THEN NULL ELSE COALESCE(%s, proof3) END,
                                         updated_at=CURRENT_TIMESTAMP
-                                    WHERE id=%s
+                                    WHERE suite=%s AND case_key=%s
                                 """, (module.strip(), None if sev == PP_NOT_SET else sev, None if pri == PP_NOT_SET else pri,
                                       None if assigned == PP_NOT_SET else assigned, status, desc.strip(), steps.strip(), exp.strip(),
                                       by.strip(), utano.strip(), pp_derive_rrn(utano, row.get("rrn")),
-                                      eff_rm[0], new_vals[0], eff_rm[1], new_vals[1], eff_rm[2], new_vals[2], did))
+                                      eff_rm[0], new_vals[0], eff_rm[1], new_vals[1], eff_rm[2], new_vals[2], d_suite, d_key))
                                 conn.commit()
                                 st.cache_data.clear()
                                 cur.close()
@@ -1712,7 +1742,7 @@ def render_preprod_defect_tracker(can_execute):
                 if conn:
                     try:
                         cur = conn.cursor()
-                        cur.execute("DELETE FROM preprod_defects WHERE id = %s", (did,))
+                        cur.execute("DELETE FROM preprod_defects WHERE suite = %s AND case_key = %s", (d_suite, d_key))
                         conn.commit()
                         st.cache_data.clear()
                         cur.close()
