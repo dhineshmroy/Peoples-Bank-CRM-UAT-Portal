@@ -157,115 +157,126 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import io
 from PIL import Image
 
-def generate_screen_issues_excel(df):
+def generate_screen_issues_excel(df, environment="UAT"):
+    """UI / screen issues register – same banner, header, colours and print layout as the other reports."""
+    from openpyxl.worksheet.properties import PageSetupProperties
+    FONT = "Calibri"
+    C_BANNER, C_SUB, C_HEAD, C_GOLD, C_LIGHT, C_BAND = "0B2545", "13315C", "1F4E78", "FFC000", "E8F0FA", "F3F7FC"
+    SEV = {"CRITICAL": ("C00000", "FFFFFF"), "HIGH": ("FFC7CE", "9C0006"), "MEDIUM": ("FFEB9C", "9C5700"), "LOW": ("C6EFCE", "006100")}
+    fill = lambda h_: PatternFill(start_color=h_, end_color=h_, fill_type="solid")
+    thin = Side(style="thin", color="D0D7E2")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_border = Border(left=thin, right=thin, top=thin, bottom=Side(style="medium", color=C_GOLD))
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", indent=1)
+
+    cols = [
+        ("Issue ID", "issue_id", 14, "id"), ("Icon Number", "icon_number", 26, "wrapc"), ("Module Name", "module_name", 24, "wrap"),
+        ("Screen / Component", "screen_name", 26, "wrap"), ("Language", "language", 18, "wrapc"), ("Issue Type", "issue_type", 22, "wrapc"),
+        ("Severity", "severity", 13, "sev"), ("Description", "description", 46, "wrap"), ("Developer Notes", "developer_notes", 46, "wrap"),
+        ("Detected By", "detected_by", 16, "center"), ("Created At", "created_at", 19, "center"),
+        ("Screenshot 1", "image1", 27, "img"), ("Screenshot 2", "image2", 27, "img"), ("Screenshot 3", "image3", 27, "img"),
+    ]
+    n = len(cols)
+    lc = openpyxl.utils.get_column_letter(n)
+    recs = df.to_dict("records") if df is not None and not df.empty else []
+    n_hi = sum(1 for r_ in recs if clean_str(r_.get("severity")).upper() in ("CRITICAL", "HIGH"))
+    env_title = "GRG CRM PRE-PROD" if "pre" in environment.lower() else "PEOPLE'S BANK CRM UAT"
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "UI Screen Issues Tracker"
-    
-    ws.views.sheetView[0].showGridLines = True
-    
-    # Color Palette - Executive Navy & Slate
-    header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
-    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    data_font = Font(name="Calibri", size=10)
-    title_font = Font(name="Calibri", size=16, bold=True, color="1B365D")
-    subtitle_font = Font(name="Calibri", size=11, italic=True, color="595959")
-    
-    border_thin = Border(
-        left=Side(style='thin', color='D9D9D9'),
-        right=Side(style='thin', color='D9D9D9'),
-        top=Side(style='thin', color='D9D9D9'),
-        bottom=Side(style='thin', color='D9D9D9')
-    )
-    
-    # Title & Subtitle Block
-    ws.merge_cells("A1:N1")
-    ws["A1"] = "People's Bank CRM UAT — Official UI & Screen Issues Tracking Register"
-    ws["A1"].font = title_font
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 25
-    
-    ws.merge_cells("A2:N2")
-    ws["A2"] = f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential — For Internal UAT Quality Assurance Only"
-    ws["A2"].font = subtitle_font
-    ws["A2"].alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[2].height = 18
-    
-    headers = [
-        "Issue ID", "Icon Number", "Module Name", "Screen / Component", 
-        "Language", "Issue Type", "Severity", "Description", 
-        "Developer Notes", "Detected By", "Created At", "Screenshot 1", "Screenshot 2", "Screenshot 3"
-    ]
-    
-    ws.row_dimensions[4].height = 28
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=4, column=col_idx, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = border_thin
-        
-    current_row = 5
-    for idx, row in df.iterrows():
-        ws.row_dimensions[current_row].height = 110  # Generous height for embedded thumbnails & text
-        
-        row_data = [
-            str(row.get('issue_id', '')),
-            str(row.get('icon_number', '')),
-            str(row.get('module_name', '')),
-            str(row.get('screen_name', '')),
-            str(row.get('language', '')),
-            str(row.get('issue_type', '')),
-            str(row.get('severity', '')),
-            str(row.get('description', '')),
-            str(row.get('developer_notes', '')),
-            str(row.get('detected_by', '')),
-            str(row.get('created_at', ''))
-        ]
-        
-        for c_idx, val in enumerate(row_data, 1):
-            cell = ws.cell(row=current_row, column=c_idx, value=val)
-            cell.font = data_font
-            cell.border = border_thin
-            cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-            
-            # Highlight Severity Column color coding softly
-            if c_idx == 7:
-                sev_val = str(val).lower()
-                if "critical" in sev_val:
-                    cell.fill = PatternFill(start_color="FADBD8", end_color="FADBD8", fill_type="solid")
-                    cell.font = Font(name="Calibri", size=10, bold=True, color="900C3F")
-                elif "high" in sev_val:
-                    cell.fill = PatternFill(start_color="FDEBD0", end_color="FDEBD0", fill_type="solid")
-                    cell.font = Font(name="Calibri", size=10, bold=True, color="B9770E")
-            
-        # Handle Base64 Images embedding into Excel
-        img_fields = ['image1', 'image2', 'image3']
-        for i, img_f in enumerate(img_fields, start=12):
-            img_b64 = row.get(img_f, '')
-            if img_b64 and str(img_b64).strip() != "":
-                try:
-                    img_bytes = base64.b64decode(img_b64)
-                    img_io = io.BytesIO(img_bytes)
-                    
-                    xl_img = OpenpyxlImage(img_io)
-                    xl_img.width = 120
-                    xl_img.height = 90
-                    
-                    col_letter = openpyxl.utils.get_column_letter(i)
-                    cell_ref = f"{col_letter}{current_row}"
-                    ws.add_image(xl_img, cell_ref)
-                except Exception as e:
-                    print(f"Excel Image Embedding Error: {e}")
-            
-            cell_img = ws.cell(row=current_row, column=i, value="")
-            cell_img.border = border_thin
-            
-        current_row += 1
+    for r_, txt, size, bold, colr, bg, h_, ital in (
+        (1, f"{env_title} – UI & SCREEN ISSUES TRACKING REGISTER", 16, True, "FFFFFF", C_BANNER, 36, False),
+        (2, "PEOPLE'S BANK  ·  Layout, alignment, text and multi-language (English / Sinhala / Tamil) screen issues  ·  Confidential – internal QA use only", 10, True, "FFFFFF", C_SUB, 20, False),
+        (3, f"Environment: GRG CRM – {environment}      |      Report Generated: {pp_now().strftime('%d/%m/%Y %H:%M')}      |      Issues: {len(recs)}      |      Critical / High: {n_hi}", 10, False, "1F3864", C_LIGHT, 22, True)):
+        ws.merge_cells(f"A{r_}:{lc}{r_}")
+        c_ = ws[f"A{r_}"]
+        c_.value = txt
+        c_.font = Font(name=FONT, size=size, bold=bold, italic=ital, color=colr)
+        c_.fill = fill(bg)
+        c_.alignment = left
+        ws.row_dimensions[r_].height = h_
+    for ci in range(1, n + 1):
+        ws.cell(row=4, column=ci).fill = fill(C_GOLD)
+    ws.row_dimensions[4].height = 4
+    ws.sheet_view.showGridLines = False
+    ws.sheet_view.zoomScale = 90
 
-    col_widths = {'A': 15, 'B': 15, 'C': 22, 'D': 24, 'E': 16, 'F': 24, 'G': 14, 'H': 40, 'I': 40, 'J': 18, 'K': 18, 'L': 18, 'M': 18, 'N': 18}
-    for col_let, width in col_widths.items():
-        ws.column_dimensions[col_let].width = width
+    HDR = 5
+    ws.row_dimensions[HDR].height = 34
+    for ci, (h_, key, w_, kind) in enumerate(cols, start=1):
+        c_ = ws.cell(row=HDR, column=ci, value=h_)
+        c_.font = Font(name=FONT, size=10, bold=True, color="FFFFFF")
+        c_.fill = fill(C_HEAD)
+        c_.alignment = center
+        c_.border = head_border
+        ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = w_
+
+    r = HDR + 1
+    for i, rec in enumerate(recs):
+        band = C_BAND if i % 2 else "FFFFFF"
+        row_h = 30
+        for ci, (h_, key, w_, kind) in enumerate(cols, start=1):
+            c_ = ws.cell(row=r, column=ci)
+            c_.border, c_.fill, c_.font, c_.alignment = border, fill(band), Font(name=FONT, size=10, color="222222"), center
+            if kind == "img":
+                raw = clean_str(rec.get(key))
+                res = None
+                if raw:
+                    try:
+                        res = receipt_to_jpeg(base64.b64decode(raw))
+                    except Exception:
+                        res = None
+                if res:
+                    data, iw, ih = res
+                    sc = min(180 / iw, 130 / ih, 1)
+                    xl_img = OpenpyxlImage(io.BytesIO(data))
+                    xl_img.width, xl_img.height = max(int(iw * sc), 1), max(int(ih * sc), 1)
+                    ws.add_image(xl_img, f"{openpyxl.utils.get_column_letter(ci)}{r}")
+                    row_h = max(row_h, xl_img.height * 0.75 + 10)
+                else:
+                    c_.value = "—"
+                    c_.font = Font(name=FONT, size=10, color="A6A6A6")
+                continue
+            v = clean_str(rec.get(key))
+            if kind == "id":
+                c_.value = v
+                c_.font = Font(name=FONT, size=10, bold=True, color=C_HEAD)
+                c_.alignment = left
+            elif kind == "sev":
+                label = v.title() if v else "Not set"
+                bg, fg = SEV.get(label.upper(), ("EDEDED", "595959"))
+                c_.value, c_.fill = label, fill(bg)
+                c_.font = Font(name=FONT, size=10, bold=True, color=fg)
+            elif kind in ("wrap", "wrapc"):
+                c_.value = v
+                c_.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left" if kind == "wrap" else "center", indent=1 if kind == "wrap" else 0)
+                lines = sum(max(1, -(-len(part) // max(int(w_ * 1.05), 1))) for part in (v.split("\n") if v else [""]))
+                row_h = max(row_h, 14 * lines + 8)
+            else:
+                c_.value = v
+        ws.row_dimensions[r].height = min(row_h, 260)
+        r += 1
+    if not recs:
+        ws.merge_cells(f"A{r}:{lc}{r}")
+        ws[f"A{r}"] = "No screen issues logged for the selected criteria."
+        ws[f"A{r}"].font = Font(name=FONT, size=10, italic=True, color="7F7F7F")
+        ws[f"A{r}"].alignment = center
+        r += 1
+
+    ws.auto_filter.ref = f"A{HDR}:{lc}{max(r - 1, HDR)}"
+    ws.freeze_panes = f"B{HDR + 1}"
+    ws.sheet_properties.tabColor = "7030A0"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.print_title_rows = f"{HDR}:{HDR}"
+    ws.oddFooter.left.text = "People's Bank – GRG CRM UI & Screen Issues Register"
+    ws.oddFooter.right.text = "Page &P of &N"
 
     excel_buffer = io.BytesIO()
     wb.save(excel_buffer)
@@ -1141,6 +1152,9 @@ def _pp_prepare_defect_records(df):
 def generate_preprod_defect_excel(df, scope_label="All defects"):
     from openpyxl.chart import BarChart, Reference
     from openpyxl.worksheet.properties import PageSetupProperties
+    from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
 
     FONT = "Calibri"
     C_BANNER, C_SUB, C_HEAD, C_GOLD, C_LIGHT, C_BAND = "0B2545", "13315C", "1F4E78", "FFC000", "E8F0FA", "F3F7FC"
@@ -1291,7 +1305,7 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
         ("Defect Description", "defect_desc", 46, "wrap"), ("Steps to Reproduce", "steps_to_reproduce", 46, "wrap"),
         ("Expected Result", "expected_result", 40, "wrap"), ("Detected By (Tester)", "detected_by", 20, "center"),
         ("UTANO / Bill Number", "utano", 24, "center"), ("RRN", "rrn", 16, "center"),
-        ("Executed / Logged Date", "execution_date", 16, "date"), ("Executed / Logged Time", "execution_date", 13, "time"), ("Proof Photos", "proof_label", 14, "center"), ("Receipt / Evidence", "receipt_output", 28, "receipt"),
+        ("Executed / Logged Date", "execution_date", 16, "date"), ("Executed / Logged Time", "execution_date", 13, "time"), ("Proof Photos", "proof_label", 50, "proofs"), ("Receipt / Evidence", "receipt_output", 30, "receipt"),
     ]
     ncols = len(cols)
     lc = get_column_letter(ncols)
@@ -1312,7 +1326,7 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
         for ci, (h, key, w, kind) in enumerate(cols, start=1):
             c = wr.cell(row=r, column=ci)
             c.border, c.fill, c.font, c.alignment = border, fill(band), Font(name=FONT, size=10, color="222222"), center
-            v = clean_str(rec.get(key)) if kind != "receipt" else None
+            v = clean_str(rec.get(key)) if kind not in ("receipt", "proofs") else None
             if kind == "id":
                 c.value = v
                 c.font = Font(name=FONT, size=10, bold=True, color=C_HEAD)
@@ -1333,15 +1347,35 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
                 c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left", indent=1)
                 lines = sum(max(1, -(-len(part) // max(int(w * 1.05), 1))) for part in (v.split("\n") if v else [""]))
                 row_h = max(row_h, 14 * lines + 8)
+            elif kind == "proofs":
+                # up to 3 proof photos side by side inside this one cell (Defect Register sheet)
+                shots = [g for g in (receipt_to_jpeg(rec.get(k_)) for k_ in ("proof1", "proof2", "proof3")) if g]
+                if shots:
+                    x_off, tallest = 4, 0
+                    for data, iw, ih in shots:
+                        sc = min(112 / iw, 130 / ih, 1)
+                        w_, h_ = max(int(iw * sc), 1), max(int(ih * sc), 1)
+                        img = OpenPyXLImage(io.BytesIO(data))
+                        img.width, img.height = w_, h_
+                        img.anchor = OneCellAnchor(
+                            _from=AnchorMarker(col=ci - 1, colOff=pixels_to_EMU(x_off), row=r - 1, rowOff=pixels_to_EMU(4)),
+                            ext=XDRPositiveSize2D(pixels_to_EMU(w_), pixels_to_EMU(h_)))
+                        wr.add_image(img)
+                        x_off += w_ + 6
+                        tallest = max(tallest, h_)
+                    row_h = max(row_h, tallest * 0.75 + 10)
+                else:
+                    c.value = "—"
+                    c.font = Font(name=FONT, size=10, color="A6A6A6")
             elif kind == "receipt":
                 res = receipt_to_jpeg(rec.get("receipt_output"))
                 if res:
                     data, iw, ih = res
-                    sc = min(170 / iw, 100 / ih, 1)
+                    sc = min(170 / iw, 130 / ih, 1)
                     img = OpenPyXLImage(io.BytesIO(data))
                     img.width, img.height = int(iw * sc), int(ih * sc)
                     wr.add_image(img, f"{get_column_letter(ci)}{r}")
-                    row_h = max(row_h, img.height * 0.75 + 8)
+                    row_h = max(row_h, img.height * 0.75 + 10)
                 else:
                     c.value = "—"
                     c.font = Font(name=FONT, size=10, color="A6A6A6")
@@ -1359,46 +1393,6 @@ def generate_preprod_defect_excel(df, scope_label="All defects"):
     wr.freeze_panes = f"B{HDR + 1}"
     wr.sheet_properties.tabColor = "C00000"
     page_setup(wr, title_row=HDR)
-
-    # ================= EVIDENCE PHOTOS =================
-    ev = [x for x in recs if any(receipt_to_jpeg(x.get(k)) for k in ("receipt_output", "proof1", "proof2", "proof3"))]
-    if ev:
-        we = wb.create_sheet("Evidence Photos")
-        banner(we, 4, "DEFECT EVIDENCE – RECEIPTS & PHOTO PROOFS", "PEOPLE'S BANK  ·  Test case receipt and photo proofs attached to each defect")
-        for ci in range(1, 5):
-            we.column_dimensions[get_column_letter(ci)].width = 44
-        rr = 6
-        caps = [("Test case receipt", "receipt_output"), ("Proof photo 1", "proof1"), ("Proof photo 2", "proof2"), ("Proof photo 3", "proof3")]
-        for x in ev:
-            we.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=4)
-            hc = we.cell(row=rr, column=1, value=f"{clean_str(x.get('defect_ref'))}  ·  {clean_str(x.get('module_name'))}  ·  Status: {clean_str(x.get('defect_status')) or 'Open'}")
-            hc.font = Font(name=FONT, size=11, bold=True, color="FFFFFF")
-            hc.fill = fill(C_HEAD)
-            hc.alignment = left
-            we.row_dimensions[rr].height = 24
-            rr += 1
-            for ci, (cap, key) in enumerate(caps, start=1):
-                cc = we.cell(row=rr, column=ci, value=cap if receipt_to_jpeg(x.get(key)) else "—")
-                cc.font = Font(name=FONT, size=9, bold=True, color="7F7F7F")
-                cc.fill = fill(C_LIGHT)
-                cc.alignment = center
-                cc.border = border
-            rr += 1
-            row_h = 30
-            for ci, (cap, key) in enumerate(caps, start=1):
-                we.cell(row=rr, column=ci).border = border
-                res = receipt_to_jpeg(x.get(key))
-                if res:
-                    data, iw, ih = res
-                    sc = min(290 / iw, 230 / ih, 1)
-                    img = OpenPyXLImage(io.BytesIO(data))
-                    img.width, img.height = int(iw * sc), int(ih * sc)
-                    we.add_image(img, f"{get_column_letter(ci)}{rr}")
-                    row_h = max(row_h, img.height * 0.75 + 8)
-            we.row_dimensions[rr].height = row_h
-            rr += 2
-        we.sheet_properties.tabColor = "2E75B6"
-        page_setup(we)
 
     wb.active = 0
     out = io.BytesIO()
@@ -1854,7 +1848,7 @@ def render_preprod_screen_issues(can_execute):
         if st.button("⚙️ Prepare Excel + PDF Reports", type="primary", use_container_width=True, key="pp_scr_prepare"):
             with st.spinner("Building screen issue reports with screenshots…"):
                 view_dl = pp_attach_screen_images(view)
-                st.session_state["pp_scr_reports"] = {"sig": _sig, "xlsx": generate_screen_issues_excel(view_dl).getvalue(),
+                st.session_state["pp_scr_reports"] = {"sig": _sig, "xlsx": generate_screen_issues_excel(view_dl, environment="Pre-Prod").getvalue(),
                                                        "pdf": generate_screen_issues_pdf(view_dl).getvalue(), "at": pp_now().strftime("%H:%M:%S")}
             st.rerun()
     else:
