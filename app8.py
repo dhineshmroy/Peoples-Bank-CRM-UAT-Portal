@@ -667,10 +667,6 @@ CREATE TABLE IF NOT EXISTS public.preprod_defects (
     updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT preprod_defects_case_uk UNIQUE (suite, case_key)
 );
--- tables created by an older version may lack the unique key: remove duplicates, then add it
-DELETE FROM public.preprod_defects a USING public.preprod_defects b
-    WHERE a.suite = b.suite AND a.case_key = b.case_key AND a.id > b.id;
-CREATE UNIQUE INDEX IF NOT EXISTS preprod_defects_case_uk ON public.preprod_defects (suite, case_key);
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_status ON public.preprod_defects (defect_status);
 CREATE INDEX IF NOT EXISTS idx_preprod_defects_date   ON public.preprod_defects (execution_date);
 ALTER TABLE public.preprod_defects ADD COLUMN IF NOT EXISTS proof1 BYTEA;
@@ -887,9 +883,7 @@ def ensure_preprod_defect_tables():
             (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_defects' AND column_name='proof3'),
             (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_screen_issues' AND column_name='issue_id'),
             (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_withdrawal_matrix' AND column_name='row_id'),
-            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_all_transactions' AND column_name='row_id'),
-            (SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND tablename='preprod_defects'
-                AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%(suite, case_key)%')""")
+            (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='preprod_all_transactions' AND column_name='row_id')""")
         have = cur.fetchone()
         conn.rollback()
         cur.close()
@@ -897,7 +891,7 @@ def ensure_preprod_defect_tables():
             conn.close()
             return True
         steps = []
-        if not (have and int(have[0]) > 0 and int(have[1]) > 0 and len(have) > 4 and int(have[4]) > 0):
+        if not (have and int(have[0]) > 0 and int(have[1]) > 0):
             steps.append(PP_SCHEMA_SQL)
         if not (have and int(have[2]) > 0):
             steps.append("ALTER TABLE public.preprod_withdrawal_matrix ADD COLUMN IF NOT EXISTS row_id BIGSERIAL")
@@ -955,27 +949,21 @@ def sync_preprod_defect(cur, suite, ctx, new_status, tester, utano, rrn, exec_da
     cur.execute("SAVEPOINT pp_defect_sp")
     try:
         if status == "FAIL":
-            # update the defect if this failed case is already logged, otherwise insert it
-            # (works on any table layout - no unique constraint / ON CONFLICT needed)
             cur.execute("""
-                UPDATE preprod_defects SET
-                    detected_by    = %s,
-                    utano          = %s,
-                    rrn            = %s,
-                    execution_date = %s,
-                    defect_desc    = COALESCE(NULLIF(defect_desc, ''), %s),
+                INSERT INTO preprod_defects
+                    (defect_ref, suite, case_key, source, module_name, card_scheme, card_type, issuing_bank,
+                     account_type, defect_status, defect_desc, detected_by, utano, rrn, execution_date)
+                VALUES (%s, %s, %s, 'AUTO', %s, %s, %s, %s, %s, 'Open', %s, %s, %s, %s, %s)
+                ON CONFLICT (suite, case_key) DO UPDATE SET
+                    detected_by    = EXCLUDED.detected_by,
+                    utano          = EXCLUDED.utano,
+                    rrn            = EXCLUDED.rrn,
+                    execution_date = EXCLUDED.execution_date,
+                    defect_desc    = COALESCE(NULLIF(preprod_defects.defect_desc, ''), EXCLUDED.defect_desc),
                     updated_at     = CURRENT_TIMESTAMP
-                WHERE suite = %s AND case_key = %s
-            """, (clean_str(tester), clean_str(utano), clean_str(rrn), str(exec_date), clean_str(remarks), suite, key))
-            if cur.rowcount == 0:
-                cur.execute("""
-                    INSERT INTO preprod_defects
-                        (defect_ref, suite, case_key, source, module_name, card_scheme, card_type, issuing_bank,
-                         account_type, defect_status, defect_desc, detected_by, utano, rrn, execution_date)
-                    VALUES (%s, %s, %s, 'AUTO', %s, %s, %s, %s, %s, 'Open', %s, %s, %s, %s, %s)
-                """, (ctx["tc_id"], suite, key, ctx["module_name"], ctx["card_scheme"], ctx["card_type"],
-                      ctx["issuing_bank"], ctx["account_type"], clean_str(remarks), clean_str(tester),
-                      clean_str(utano), clean_str(rrn), str(exec_date)))
+            """, (ctx["tc_id"], suite, key, ctx["module_name"], ctx["card_scheme"], ctx["card_type"],
+                  ctx["issuing_bank"], ctx["account_type"], clean_str(remarks), clean_str(tester),
+                  clean_str(utano), clean_str(rrn), str(exec_date)))
         else:
             cur.execute("DELETE FROM preprod_defects WHERE suite = %s AND case_key = %s", (suite, key))
         cur.execute("RELEASE SAVEPOINT pp_defect_sp")
@@ -1543,18 +1531,16 @@ def render_preprod_defect_tracker(can_execute):
                         if conn:
                             try:
                                 cur = conn.cursor()
-                                cur.execute("SELECT 1 FROM preprod_defects WHERE suite = 'MANUAL' AND case_key = %s LIMIT 1", (m_ref.strip(),))
-                                created = 0
-                                if not cur.fetchone():
-                                    cur.execute("""
-                                        INSERT INTO preprod_defects (defect_ref, suite, case_key, source, module_name, severity, priority,
-                                            assigned_to, defect_status, defect_desc, steps_to_reproduce, expected_result, detected_by,
-                                            utano, rrn, execution_date, proof1, proof2, proof3)
-                                        VALUES (%s,'MANUAL',%s,'MANUAL',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                                    """, (m_ref.strip(), m_ref.strip(), m_module.strip() or "General", m_sev, m_pri, m_assign, m_status,
-                                          m_desc.strip(), m_steps.strip(), m_exp.strip(), m_by.strip(), m_utano.strip(),
-                                          pp_derive_rrn(m_utano), pp_stamp(), *pp_assign_photo_slots(m_photos, [False] * 3, [False] * 3)[0]))
-                                    created = cur.rowcount
+                                cur.execute("""
+                                    INSERT INTO preprod_defects (defect_ref, suite, case_key, source, module_name, severity, priority,
+                                        assigned_to, defect_status, defect_desc, steps_to_reproduce, expected_result, detected_by,
+                                        utano, rrn, execution_date, proof1, proof2, proof3)
+                                    VALUES (%s,'MANUAL',%s,'MANUAL',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                    ON CONFLICT (suite, case_key) DO NOTHING
+                                """, (m_ref.strip(), m_ref.strip(), m_module.strip() or "General", m_sev, m_pri, m_assign, m_status,
+                                      m_desc.strip(), m_steps.strip(), m_exp.strip(), m_by.strip(), m_utano.strip(),
+                                      pp_derive_rrn(m_utano), pp_stamp(), *pp_assign_photo_slots(m_photos, [False] * 3, [False] * 3)[0]))
+                                created = cur.rowcount
                                 conn.commit()
                                 st.cache_data.clear()
                                 cur.close()
